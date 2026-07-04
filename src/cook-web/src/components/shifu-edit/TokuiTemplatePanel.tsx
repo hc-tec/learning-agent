@@ -101,7 +101,7 @@ export default function TokuiTemplatePanel({
   outlineBid,
   readonly = false,
 }: TokuiTemplatePanelProps) {
-  const { t } = useTranslation();
+  const { t } = useTranslation(['module.shifu', 'common.core']);
   const defaultLlmModel = useEnvStore(state => state.defaultLlmModel);
   const [template, setTemplate] = useState<TokuiTemplate>({});
   const [loading, setLoading] = useState(false);
@@ -213,7 +213,7 @@ export default function TokuiTemplatePanel({
         ...buildPayload(),
       })) as TokuiTemplate;
       setTemplate(result);
-      toast({ title: t('module.shifu.creationArea.tokui.saveSuccess') });
+      toast({ title: t('creationArea.tokui.saveSuccess') });
     } finally {
       savingRef.current = false;
       setSaving(false);
@@ -234,7 +234,7 @@ export default function TokuiTemplatePanel({
       setTemplate(result);
       if (result.preview_validation_status !== 'validated') {
         toast({
-          title: t('module.shifu.creationArea.tokui.previewFailed'),
+          title: t('creationArea.tokui.previewFailed'),
           variant: 'destructive',
         });
       }
@@ -266,11 +266,11 @@ export default function TokuiTemplatePanel({
       }));
       setImagePrompt('');
       toast({
-        title: t('module.shifu.creationArea.tokui.imageGenerateSuccess'),
+        title: t('creationArea.tokui.imageGenerateSuccess'),
       });
     } catch {
       toast({
-        title: t('module.shifu.creationArea.tokui.imageGenerateFailed'),
+        title: t('creationArea.tokui.imageGenerateFailed'),
         variant: 'destructive',
       });
     } finally {
@@ -286,10 +286,10 @@ export default function TokuiTemplatePanel({
       <div className='mb-3 flex items-center justify-between gap-3'>
         <div>
           <div className='text-sm font-medium text-slate-900'>
-            {t('module.shifu.creationArea.tokui.title')}
+            {t('creationArea.tokui.title')}
           </div>
           <div className='text-xs text-slate-500'>
-            {t('module.shifu.creationArea.tokui.subtitle')}
+            {t('creationArea.tokui.subtitle')}
           </div>
         </div>
         {loading ? (
@@ -304,7 +304,7 @@ export default function TokuiTemplatePanel({
             disabled={disabled}
             value={template.concept || ''}
             placeholder={t(
-              'module.shifu.creationArea.tokui.conceptPlaceholder',
+              'creationArea.tokui.conceptPlaceholder',
             )}
             onChange={event =>
               setTemplate(prev => ({ ...prev, concept: event.target.value }))
@@ -314,7 +314,7 @@ export default function TokuiTemplatePanel({
             className='min-h-20 w-full rounded-md border border-slate-300 px-3 py-2 text-sm'
             disabled={disabled}
             value={template.teacher_intent || ''}
-            placeholder={t('module.shifu.creationArea.tokui.intentPlaceholder')}
+            placeholder={t('creationArea.tokui.intentPlaceholder')}
             onChange={event =>
               setTemplate(prev => ({
                 ...prev,
@@ -326,7 +326,7 @@ export default function TokuiTemplatePanel({
             className='min-h-28 w-full rounded-md border border-slate-300 px-3 py-2 text-sm'
             disabled={disabled}
             value={template.prompt_template || ''}
-            placeholder={t('module.shifu.creationArea.tokui.promptPlaceholder')}
+            placeholder={t('creationArea.tokui.promptPlaceholder')}
             onChange={event =>
               setTemplate(prev => ({
                 ...prev,
@@ -337,10 +337,10 @@ export default function TokuiTemplatePanel({
           <div className='rounded-md border border-slate-200 p-3'>
             <div className='mb-2 flex items-center justify-between gap-2'>
               <div className='text-xs font-medium text-slate-700'>
-                {t('module.shifu.creationArea.tokui.mediaRefsTitle')}
+                {t('creationArea.tokui.mediaRefsTitle')}
               </div>
               <div className='text-xs text-slate-500'>
-                {t('module.shifu.creationArea.tokui.mediaRefsHint')}
+                {t('creationArea.tokui.mediaRefsHint')}
               </div>
             </div>
             <div className='grid gap-2 sm:grid-cols-[7rem_1fr]'>
@@ -349,7 +349,7 @@ export default function TokuiTemplatePanel({
                 disabled={disabled}
                 value={draftMediaRef.type}
                 aria-label={t(
-                  'module.shifu.creationArea.tokui.mediaTypeLabel',
+                  'creationArea.tokui.mediaTypeLabel',
                 )}
                 onChange={event =>
                   setDraftMediaRef(prev => ({
@@ -359,10 +359,10 @@ export default function TokuiTemplatePanel({
                 }
               >
                 <option value='image'>
-                  {t('module.shifu.creationArea.tokui.mediaTypeImage')}
+                  {t('creationArea.tokui.mediaTypeImage')}
                 </option>
                 <option value='video'>
-                  {t('module.shifu.creationArea.tokui.mediaTypeVideo')}
+                  {t('creationArea.tokui.mediaTypeVideo')}
                 </option>
               </select>
               <input
@@ -370,7 +370,7 @@ export default function TokuiTemplatePanel({
                 disabled={disabled}
                 value={draftMediaRef.url || draftMediaRef.resource_id}
                 placeholder={t(
-                  'module.shifu.creationArea.tokui.mediaUrlPlaceholder',
+                  'creationArea.tokui.mediaUrlPlaceholder',
                 )}
                 onChange={event =>
                   setDraftMediaRef(prev => ({
@@ -385,7 +385,7 @@ export default function TokuiTemplatePanel({
                 disabled={disabled}
                 value={draftMediaRef.title}
                 placeholder={t(
-                  'module.shifu.creationArea.tokui.mediaTitlePlaceholder',
+                  'creationArea.tokui.mediaTitlePlaceholder',
                 )}
                 onChange={event =>
                   setDraftMediaRef(prev => ({
@@ -407,19 +407,19 @@ export default function TokuiTemplatePanel({
                 onClick={addDraftMediaRef}
               >
                 <Plus className='mr-2 h-4 w-4' />
-                {t('module.shifu.creationArea.tokui.addMediaRef')}
+                {t('creationArea.tokui.addMediaRef')}
               </Button>
             </div>
             <div className='mt-3 border-t border-slate-200 pt-3'>
               <div className='mb-2 text-xs font-medium text-slate-700'>
-                {t('module.shifu.creationArea.tokui.imageGenerateTitle')}
+                {t('creationArea.tokui.imageGenerateTitle')}
               </div>
               <textarea
                 className='min-h-20 w-full rounded-md border border-slate-300 px-3 py-2 text-sm'
                 disabled={disabled || generatingImage}
                 value={imagePrompt}
                 placeholder={t(
-                  'module.shifu.creationArea.tokui.imagePromptPlaceholder',
+                  'creationArea.tokui.imagePromptPlaceholder',
                 )}
                 onChange={event => setImagePrompt(event.target.value)}
               />
@@ -436,7 +436,7 @@ export default function TokuiTemplatePanel({
                 ) : (
                   <ImageIcon className='mr-2 h-4 w-4' />
                 )}
-                {t('module.shifu.creationArea.tokui.generateImage')}
+                {t('creationArea.tokui.generateImage')}
               </Button>
             </div>
             {normalizeMediaRefs(template.media_refs).length ? (
@@ -467,7 +467,7 @@ export default function TokuiTemplatePanel({
                       variant='ghost'
                       disabled={disabled}
                       aria-label={t(
-                        'module.shifu.creationArea.tokui.removeMediaRef',
+                        'creationArea.tokui.removeMediaRef',
                       )}
                       onClick={() => removeMediaRef(index)}
                     >
@@ -490,7 +490,7 @@ export default function TokuiTemplatePanel({
               ) : (
                 <Save className='mr-2 h-4 w-4' />
               )}
-              {t('common.core.save')}
+              {t('save', { ns: 'common.core' })}
             </Button>
             <Button
               type='button'
@@ -506,7 +506,7 @@ export default function TokuiTemplatePanel({
               ) : (
                 <Sparkles className='mr-2 h-4 w-4' />
               )}
-              {t('module.shifu.creationArea.tokui.generatePreview')}
+              {t('creationArea.tokui.generatePreview')}
             </Button>
           </div>
         </div>
@@ -519,7 +519,7 @@ export default function TokuiTemplatePanel({
             />
           ) : (
             <div className='flex h-full min-h-44 items-center justify-center text-sm text-slate-500'>
-              {t('module.shifu.creationArea.tokui.previewEmpty')}
+              {t('creationArea.tokui.previewEmpty')}
             </div>
           )}
         </div>

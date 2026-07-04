@@ -9,6 +9,8 @@ const createJestConfig = nextJest({
 const customJestConfig = {
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
   moduleNameMapper: {
+    '^@jboltai/tokui/css$': '<rootDir>/test/styleMock.js',
+    '^.+\\.(css|less|scss|sass)$': '<rootDir>/test/styleMock.js',
     // Handle module aliases (this will be automatically configured for you based on your tsconfig.json paths)
     '^@/(.*)$': '<rootDir>/src/$1',
   },
