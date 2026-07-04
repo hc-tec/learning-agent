@@ -11,7 +11,7 @@ describe('i18n language normalization', () => {
       locales: {
         'en-US': { label: 'English' },
         'zh-CN': { label: '中文' },
-        'fr-FR': { label: 'Français' },
+        'fr-FR': { label: 'Français', visible: false },
       },
     };
 
@@ -30,8 +30,8 @@ describe('i18n language normalization', () => {
       expect(normalizeLanguage('en')).toBe('en-US');
       expect(normalizeLanguage('en-GB')).toBe('en-US');
       expect(normalizeLanguage('zh')).toBe('zh-CN');
-      expect(normalizeLanguage('fr')).toBe('fr-FR');
-      expect(normalizeLanguage('fr-CA')).toBe('fr-FR');
+      expect(normalizeLanguage('fr')).toBe('en-US');
+      expect(normalizeLanguage('fr-CA')).toBe('en-US');
       expect(normalizeLanguage('de')).toBe('en-US');
 
       // restore window to avoid side effects
@@ -45,7 +45,7 @@ describe('i18n language normalization', () => {
       locales: {
         'en-US': { label: 'English' },
         'zh-CN': { label: '中文' },
-        'fr-FR': { label: 'Français' },
+        'fr-FR': { label: 'Français', visible: false },
       },
       namespaces: ['common.core'],
     };
@@ -53,14 +53,15 @@ describe('i18n language normalization', () => {
     jest.resetModules();
     process.env.NEXT_PUBLIC_I18N_META = JSON.stringify(meta);
 
-    const { getLocaleLabel, localeEntries, namespaces } =
+    const { getLocaleLabel, localeEntries, metadataLocaleEntries, namespaces } =
       await import('../lib/i18n-locales');
 
-    expect(localeEntries.map(([code]) => code)).toEqual([
+    expect(metadataLocaleEntries.map(([code]) => code)).toEqual([
       'en-US',
       'zh-CN',
       'fr-FR',
     ]);
+    expect(localeEntries.map(([code]) => code)).toEqual(['en-US', 'zh-CN']);
     expect(getLocaleLabel('fr-FR')).toBe('Français');
     expect(namespaces).toEqual(['common.core']);
   });

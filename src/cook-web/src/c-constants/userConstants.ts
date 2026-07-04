@@ -25,9 +25,6 @@ export const selectDefaultLanguage = language => {
   if (normalized.startsWith('en')) {
     return 'en-US';
   }
-  if (normalized.startsWith('fr')) {
-    return 'fr-FR';
-  }
 
   return 'zh-CN';
 };
