@@ -1,4 +1,5 @@
 from flaskr.service.tokui.common import normalize_interaction_schema, normalize_media_refs
+from flaskr.service.shifu.shifu_tokui_funcs import _build_guidance_prompt
 
 
 def test_normalize_interaction_schema_preserves_blocking_checkpoint_fields():
@@ -77,3 +78,24 @@ def test_normalize_media_refs_keeps_stable_resource_fields():
             "description": "",
         },
     ]
+
+
+def test_build_guidance_prompt_treats_prompt_template_as_teaching_guide():
+    prompt = _build_guidance_prompt(
+        template_payload={
+            "teacher_intent": "学生能判断铁路制动压力传递的关键环节",
+            "prompt_template": "先用真实场景解释，再提问检查理解",
+            "concept": "制动压力传递",
+            "audience": "铁路专业新生",
+            "generation_options": {
+                "interaction_mode": "checkpoint",
+                "blocking_checkpoint": True,
+            },
+        },
+        context_payload={"mode": "teacher_guidance_authoring"},
+    )
+
+    assert "instructions for the AI teacher" in prompt
+    assert "blocking checkpoint question" in prompt
+    assert "Do not introduce any third language" in prompt
+    assert "学生能判断铁路制动压力传递的关键环节" in prompt

@@ -25,6 +25,7 @@ from flaskr.service.tokui.common import (
     TOKUI_STATUS_IDLE,
     TOKUI_STATUS_VALIDATED,
     build_generation_payload,
+    extract_json_object,
     json_dumps,
     json_loads,
     normalize_media_refs,
@@ -205,6 +206,19 @@ def _build_generation_prompt(
     context_payload: dict[str, Any],
     validation_errors: list[dict[str, Any]] | None = None,
 ) -> str:
+    generation_options = template_payload.get("generation_options") or {}
+    interaction_mode = str(generation_options.get("interaction_mode") or "").strip()
+    checkpoint_required = bool(generation_options.get("blocking_checkpoint"))
+    interaction_policy = (
+        "- The teacher selected CHECKPOINT mode. You must include one meaningful "
+        "learner-fillable checkpoint unless saved tokui_responses already answer "
+        "it. Mark that field with \"blocking\": true and "
+        "\"continue_on_submit\": true.\n"
+        if checkpoint_required or interaction_mode == "checkpoint"
+        else "- The teacher selected NORMAL interaction mode. Add learner input only "
+        "when the teaching guide asks for it; do not mark fields as blocking "
+        "unless later content truly depends on the answer.\n"
+    )
     repair_section = ""
     if validation_errors:
         repair_section = (
@@ -238,6 +252,11 @@ Rules:
 - Use TokUI DSL only in the dsl field.
 - Include interaction_schema for every learner-fillable control.
 - Reuse stable field_id names derived from the learning task.
+- Treat teacher_intent as the learner outcome and prompt_template as the
+  teacher's detailed teaching guide. The guide may contain teaching sequence,
+  examples, misconceptions, checkpoint timing, feedback rules, and standards
+  for whether the learner has actually understood. Follow those teaching
+  instructions; do not reduce them to a short generic explanation.
 - Reference only provided media/material URLs or IDs.
 - If teacher media refs are provided, use them where they help explain the
   concept. For images, render an image/media element using the provided stable
@@ -257,6 +276,7 @@ Rules:
 - When Runtime context JSON contains tokui_responses, use those answers to
   generate the next appropriate teaching content instead of asking the same
   checkpoint again.
+{interaction_policy}
 
 Teacher template JSON:
 {json_dumps(template_payload, {})}
@@ -267,16 +287,58 @@ Runtime context JSON:
 """.strip()
 
 
-def _invoke_tokui_llm(
-    app: Flask,
+def _build_guidance_prompt(
     *,
-    user_bid: str,
-    outline: Any,
     template_payload: dict[str, Any],
     context_payload: dict[str, Any],
-    validation_errors: list[dict[str, Any]] | None = None,
-    generation_name: str,
-) -> dict[str, Any]:
+) -> str:
+    generation_options = template_payload.get("generation_options") or {}
+    interaction_mode = str(generation_options.get("interaction_mode") or "").strip()
+    checkpoint_required = bool(generation_options.get("blocking_checkpoint"))
+    interaction_policy = (
+        "The lesson must include one blocking checkpoint question. Explain what "
+        "the checkpoint diagnoses, what counts as a good answer, what common "
+        "misconceptions to watch for, and how the next explanation should depend "
+        "on the learner answer."
+        if checkpoint_required or interaction_mode == "checkpoint"
+        else "Only ask for learner input when it improves the lesson. Do not make "
+        "an interaction blocking unless later content truly depends on that answer."
+    )
+    return f"""
+You are helping a teacher write a detailed AI teaching guide for TokUI lesson generation.
+Return one JSON object only:
+{{
+  "prompt_template": "the improved detailed teaching guide"
+}}
+
+What this guide is:
+- It is instructions for the AI teacher, not final student-facing copy.
+- It should describe teaching sequence, explanation style, examples, media usage,
+  checkpoint timing, expected learner answer quality, feedback rules, follow-up
+  strategy, and misconception handling.
+- It should be concrete enough that another model can generate TokUI DSL and an
+  interaction_schema without guessing the teacher's pedagogy.
+- Keep it practical for one lesson node, but do not collapse it into a short prompt.
+
+Language:
+- Use Chinese when the teacher input is Chinese or mostly Chinese.
+- Use English when the teacher input is English or mostly English.
+- Do not introduce any third language.
+
+Interaction policy:
+{interaction_policy}
+
+Teacher draft JSON:
+{json_dumps(template_payload, {})}
+
+Authoring context JSON:
+{json_dumps(context_payload, {})}
+""".strip()
+
+
+def _resolve_generation_settings(
+    template_payload: dict[str, Any], outline: Any
+) -> tuple[str, float]:
     model = str(
         (template_payload.get("generation_options") or {}).get("model")
         or outline.ask_llm
@@ -291,6 +353,20 @@ def _invoke_tokui_llm(
         or outline.llm_temperature
         or 0.3
     )
+    return model, temperature
+
+
+def _invoke_tokui_llm(
+    app: Flask,
+    *,
+    user_bid: str,
+    outline: Any,
+    template_payload: dict[str, Any],
+    context_payload: dict[str, Any],
+    validation_errors: list[dict[str, Any]] | None = None,
+    generation_name: str,
+) -> dict[str, Any]:
+    model, temperature = _resolve_generation_settings(template_payload, outline)
     prompt = _build_generation_prompt(
         template_payload=template_payload,
         context_payload=context_payload,
@@ -338,6 +414,109 @@ def _invoke_tokui_llm(
                 root_span=span,
                 root_span_payload={"output": generation_name},
             )
+
+
+def _invoke_guidance_llm(
+    app: Flask,
+    *,
+    user_bid: str,
+    outline: Any,
+    template_payload: dict[str, Any],
+    context_payload: dict[str, Any],
+) -> str:
+    model, temperature = _resolve_generation_settings(template_payload, outline)
+    prompt = _build_guidance_prompt(
+        template_payload=template_payload,
+        context_payload=context_payload,
+    )
+    trace = None
+    span = None
+    try:
+        trace, span = create_trace_with_root_span(
+            client=get_langfuse_client(),
+            trace_payload={
+                "name": "tokui_teacher_guidance",
+                "user_id": user_bid,
+                "metadata": {
+                    "shifu_bid": outline.shifu_bid,
+                    "outline_item_bid": outline.outline_item_bid,
+                },
+            },
+            root_span_payload={
+                "name": "tokui_teacher_guidance",
+                "input": context_payload,
+            },
+        )
+        chunks = invoke_llm(
+            app,
+            user_bid,
+            span,
+            model=model,
+            message=prompt,
+            json=True,
+            stream=True,
+            generation_name="tokui_teacher_guidance",
+            usage_context=UsageContext(
+                user_bid=user_bid,
+                shifu_bid=outline.shifu_bid,
+                outline_item_bid=outline.outline_item_bid,
+                usage_scene=BILL_USAGE_SCENE_DEBUG,
+            ),
+            usage_scene=BILL_USAGE_SCENE_DEBUG,
+            temperature=temperature,
+        )
+        response_text = "".join(chunk.result for chunk in chunks if chunk.result)
+        parsed = extract_json_object(response_text)
+        guidance = str(parsed.get("prompt_template") or "").strip()
+        if not guidance:
+            raise_error("server.shifu.tokuiGuidanceGenerationFailed")
+        return guidance
+    finally:
+        if trace is not None:
+            finalize_langfuse_trace(
+                trace=trace,
+                root_span=span,
+                root_span_payload={"output": "tokui_teacher_guidance"},
+            )
+
+
+def generate_teacher_tokui_guidance(
+    app: Flask, user_bid: str, shifu_bid: str, outline_bid: str, payload: dict[str, Any]
+) -> dict[str, Any]:
+    with app.app_context():
+        template = save_draft_tokui_template(
+            app, user_bid, shifu_bid, outline_bid, payload
+        )
+        outline = _latest_draft_outline(shifu_bid, outline_bid)
+        template_row = _active_draft_template(shifu_bid, outline_bid)
+        if template_row is None:
+            raise_error("server.shifu.outlineItemNotFound")
+
+        context_payload = {
+            "mode": "teacher_guidance_authoring",
+            "course": {"shifu_bid": shifu_bid},
+            "outline": {"outline_item_bid": outline_bid, "title": outline.title},
+            "teacher_media_refs": template.get("media_refs") or [],
+        }
+        guidance = _invoke_guidance_llm(
+            app,
+            user_bid=user_bid,
+            outline=outline,
+            template_payload=template,
+            context_payload=context_payload,
+        )
+
+        template_row.prompt_template = guidance
+        template_row.template_hash = template_hash(
+            {
+                **template,
+                "prompt_template": guidance,
+            }
+        )
+        template_row.updated_user_bid = user_bid
+        template_row.updated_at = now_utc()
+        db.session.commit()
+        return _serialize_template(template_row)
 
 
 def generate_teacher_tokui_preview(

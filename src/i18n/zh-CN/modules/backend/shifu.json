@@ -24,6 +24,7 @@
     "transferCreatorDemoNotAllowed": "内置引导课程不支持转移课程负责人",
     "transferCreatorSameUser": "目标用户已经是当前负责人",
     "transferCreatorTargetNotFound": "未找到目标负责人用户",
+    "tokuiGuidanceGenerationFailed": "TokUI 教学指导生成失败，请调整教学目标后重试",
     "tokuiImageGenerationFailed": "TokUI 图片生成失败，请稍后重试",
     "tokuiImageNotConfigured": "TokUI 图片生成服务未配置",
     "tokuiImageProviderInvalidResponse": "TokUI 图片生成服务返回格式无效",

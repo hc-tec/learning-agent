@@ -24,6 +24,7 @@
     "transferCreatorDemoNotAllowed": "Built-in demo courses cannot change creator",
     "transferCreatorSameUser": "The target user is already the creator",
     "transferCreatorTargetNotFound": "Transfer target user not found",
+    "tokuiGuidanceGenerationFailed": "TokUI teaching guide generation failed. Adjust the lesson goal and try again.",
     "tokuiImageGenerationFailed": "TokUI image generation failed. Please try again later.",
     "tokuiImageNotConfigured": "TokUI image generation service is not configured.",
     "tokuiImageProviderInvalidResponse": "TokUI image generation service returned an invalid response.",

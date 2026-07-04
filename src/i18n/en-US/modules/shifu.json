@@ -7,14 +7,36 @@
     "modeText": "Easy",
     "tokui": {
       "conceptPlaceholder": "Concept or knowledge point",
+      "conceptLabel": "Lesson node topic",
+      "audienceLabel": "Learner audience",
+      "audiencePlaceholder": "For example: railway freshmen, job trainees, beginners",
       "addMediaRef": "Add media reference",
       "generateImage": "Generate image material",
+      "generateGuidance": "Improve guide with AI",
       "generatePreview": "Generate preview",
+      "guidanceGenerateFailed": "Teaching guide generation failed. Adjust the lesson goal and try again.",
+      "guidanceGenerateSuccess": "Teaching guide generated",
+      "guidanceExample": "When explaining this concept, do not start with a bare definition. Begin from a real scenario or common misconception so the learner sees why the concept matters.\n\nTeaching sequence:\n1. First explain what problem this concept helps solve.\n2. Break it into 2-3 key parts, and explain each part with a familiar learner scenario.\n3. If the concept is abstract, use an image or step diagram to support the explanation.\n4. After the key explanation, stop and ask one understanding-check question.\n\nInteraction requirements:\n- The question is not decorative; it must check whether the learner really understands.\n- If the learner answers vaguely, ask for a concrete scenario, action, or judgment rule.\n- If the learner has a misconception, do not simply reject it. Restate the learner's idea first, then explain the difference.\n\nFeedback requirements:\n- Decide the next explanation based on the learner's answer.\n- If the answer is correct, add a more professional judgment or applied example.\n- If the answer is incomplete, point out the missing step and fill it with a simpler example.\n\nBy the end of this node, the learner should be able to restate one clear judgment instead of only reading an explanation.",
+      "guidanceHint": "Write a teaching guide for the AI, not a student-facing script. Teachers can start with a rough intent and ask AI to expand it into a detailed guide: sequence, explanation style, checkpoint, follow-up, and feedback rules.",
+      "guidanceTitle": "Detailed teaching guide",
       "imageGenerateFailed": "Image generation failed. Check configuration or try again later.",
       "imageGenerateSuccess": "Image generated and added to media.",
       "imageGenerateTitle": "AI image generation",
       "imagePromptPlaceholder": "Describe the teaching diagram to generate, for example: explain pressure transfer in a railway braking system, clear classroom style",
-      "intentPlaceholder": "Teaching intent",
+      "insertGuidanceExample": "Insert example structure",
+      "interactionMode": {
+        "checkpoint": {
+          "desc": "After the learner answers, the learner runtime continues with that answer as context.",
+          "title": "Checkpoint question"
+        },
+        "normal": {
+          "desc": "For reflection or simple confirmation when later content does not depend on the answer.",
+          "title": "Normal interaction"
+        }
+      },
+      "interactionModeTitle": "Interaction mode",
+      "intentPlaceholder": "For example: learners can explain how braking pressure transfers and identify a common misconception",
+      "learningOutcomeLabel": "Expected learner outcome",
       "mediaRefsHint": "Resource picker can be connected later",
       "mediaRefsTitle": "Image/video materials",
       "mediaTitlePlaceholder": "Media title for AI placement",
@@ -22,13 +44,17 @@
       "mediaTypeLabel": "Media type",
       "mediaTypeVideo": "Video",
       "mediaUrlPlaceholder": "Resource URL or stable resource ID",
-      "previewEmpty": "Generate a preview to inspect the learner UI sample.",
+      "previewEmpty": "Write the teaching guide, then generate a sample preview.",
       "previewFailed": "TokUI preview failed",
-      "promptPlaceholder": "Prompt template for learner-side dynamic rendering",
+      "previewFailedHint": "Try regenerating, or make the teaching guide more concrete: sequence, checkpoint question, feedback rules, and media usage.",
+      "previewGenerating": "Generating teaching sample...",
+      "previewHint": "This is a teacher-side sample preview. After publishing, the learner side dynamically generates from learner progress, saved answers, and context.",
+      "previewTitle": "Learner sample preview",
+      "promptPlaceholder": "Describe the teaching guide in detail:\n\n- What scenario or problem should this node start from?\n- What definitions should not be dumped directly, and how should the AI guide step by step?\n- Which ideas need analogies, examples, images, or videos?\n- Where should the AI stop and ask the learner, and what is the purpose of that question?\n- After the learner answers, how should the AI give feedback, ask a follow-up, or correct misconceptions?\n- How can we tell the learner really learned this node?",
       "removeMediaRef": "Remove media reference",
       "saveSuccess": "TokUI template saved",
-      "subtitle": "Teacher intent becomes dynamic learner TokUI.",
-      "title": "AI interactive content"
+      "subtitle": "Teach the AI how to teach, then let learner-side TokUI render dynamically from context.",
+      "title": "TokUI teaching guide"
     },
     "title": "Teaching Prompts"
   },

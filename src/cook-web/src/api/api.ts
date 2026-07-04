@@ -90,6 +90,8 @@ const api = {
     'POST /shifu/shifus/{shifu_bid}/outlines/{outline_bid}/tokui-template',
   previewTokuiTemplate:
     'POST /shifu/shifus/{shifu_bid}/outlines/{outline_bid}/tokui-template/preview',
+  generateTokuiGuidance:
+    'POST /shifu/shifus/{shifu_bid}/outlines/{outline_bid}/tokui-template/guidance',
   generateTokuiImage:
     'POST /shifu/shifus/{shifu_bid}/outlines/{outline_bid}/tokui-template/image',
   validateTokui: 'POST /shifu/shifus/{shifu_bid}/tokui/validate',

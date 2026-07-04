@@ -132,6 +132,7 @@ from flaskr.service.shifu.shifu_mdflow_funcs import (
     restore_shifu_mdflow_history_version,
 )
 from flaskr.service.shifu.shifu_tokui_funcs import (
+    generate_teacher_tokui_guidance,
     generate_teacher_tokui_preview,
     get_draft_tokui_template,
     save_draft_tokui_template,
@@ -1688,6 +1689,28 @@ def register_shifu_routes(app: Flask, path_prefix="/api/shifu"):
         payload = request.get_json() or {}
         return make_common_response(
             generate_teacher_tokui_preview(app, user_id, shifu_bid, outline_bid, payload)
+        )
+
+    @app.route(
+        path_prefix
+        + "/shifus/<shifu_bid>/outlines/<outline_bid>/tokui-template/guidance",
+        methods=["POST"],
+    )
+    @ShifuTokenValidation(ShifuPermission.EDIT)
+    @with_shifu_context()
+    def generate_tokui_template_guidance_api(shifu_bid: str, outline_bid: str):
+        """
+        generate tokui teacher guidance
+        ---
+        tags:
+            - shifu
+        """
+        user_id = request.user.user_id
+        payload = request.get_json() or {}
+        return make_common_response(
+            generate_teacher_tokui_guidance(
+                app, user_id, shifu_bid, outline_bid, payload
+            )
         )
 
     @app.route(
