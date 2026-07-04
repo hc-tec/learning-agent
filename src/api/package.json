@@ -1,0 +1,9 @@
+{
+  "name": "ai-shifu-api-tokui-validator",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@jboltai/tokui": "^0.1.4",
+    "jsdom": "^20.0.3"
+  }
+}

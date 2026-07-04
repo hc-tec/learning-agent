@@ -1,0 +1,378 @@
+{
+  "__namespace__": "module.operationsUser",
+  "actions": {
+    "grantCredits": "Grant Credits/Package",
+    "moreForUser": "More actions for {user}"
+  },
+  "courseSummary": {
+    "dialog": {
+      "courseId": "Course ID",
+      "courseName": "Course Name",
+      "createdTitle": "Created Courses",
+      "description": "User: {user}",
+      "learningTitle": "Learning Courses",
+      "status": "Status"
+    },
+    "empty": "--"
+  },
+  "credits": {
+    "longTerm": "Long-term valid"
+  },
+  "detail": {
+    "basicInfo": "Basic Information",
+    "createdCourses": "Created Courses",
+    "creditExpireAtHint": "When multiple validity periods exist, the earliest expiry is shown first.",
+    "creditExpireAtHintAriaLabel": "View credits expiry explanation",
+    "creditLedger": "Credits Detail",
+    "creditLedgerColumns": {
+      "amount": "Amount",
+      "balanceAfter": "Balance After",
+      "consumedCredits": "Consumed Credits",
+      "course": "Course",
+      "createdAt": "Changed At",
+      "entryType": "Type",
+      "expiresAt": "Expires At",
+      "grantedCredits": "Granted Credits",
+      "note": "Note",
+      "sectionChapter": "Section/Chapter",
+      "sourceType": "Source",
+      "usageMode": "Mode",
+      "usageScene": "Scene",
+      "user": "User"
+    },
+    "creditLedgerFilters": {
+      "course": "Course",
+      "coursePlaceholder": "Enter ID/name",
+      "grantSource": "Grant Source",
+      "grantSourceOptions": {
+        "all": "All",
+        "manual": "Manual Grant",
+        "subscription": "Subscription",
+        "topup": "Credit pack",
+        "trial_subscription": "Trial Credits"
+      },
+      "time": "Time Range",
+      "timePlaceholder": "Select time range",
+      "type": "Type",
+      "typeOptions": {
+        "all": "All",
+        "consume": "Consume",
+        "grant": "Grant",
+        "other": "Other"
+      },
+      "usageMode": "Usage Mode",
+      "usageModeOptions": {
+        "all": "All",
+        "ask": "Follow-up",
+        "learn": "Read",
+        "listen": "Listen"
+      },
+      "usageScene": "Usage Scene",
+      "usageSceneOptions": {
+        "all": "All",
+        "debug": "Debug",
+        "learning": "Learning",
+        "preview": "Preview"
+      }
+    },
+    "creditLedgerNoteLabels": {
+      "admin_manual_plan_grant": "Operations package grant",
+      "debug_consume": "Credits consumed by debug usage",
+      "gift_expire": "Gift credits expired",
+      "gift_grant": "Gift credits granted",
+      "learning_consume": "Credits consumed by learning usage",
+      "manual_credit": "Credits added manually",
+      "manual_debit": "Credits deducted manually",
+      "manual_grant": "Credits granted manually",
+      "preview_consume": "Credits consumed by preview usage",
+      "refund_return": "Credits returned after refund",
+      "subscription_cycle_transition": "Previous-cycle subscription credits expired during cycle transition",
+      "subscription_expire": "Subscription credits expired",
+      "subscription_grant": "Credits granted from subscription",
+      "subscription_purchase": "Credits granted from subscription purchase",
+      "subscription_renewal": "Credits granted from subscription renewal",
+      "topup_expire": "Credit pack credits expired",
+      "topup_grant": "Credits granted from credit pack",
+      "topup_purchase": "Credits granted from credit pack purchase",
+      "trial_bootstrap": "Credits granted from trial activation",
+      "trial_subscription_grant": "Credits granted from trial subscription"
+    },
+    "creditLedgerSourceLabels": {
+      "compensation": "Compensation",
+      "debug": "Debug",
+      "gift": "Gift",
+      "learning": "Learning",
+      "manual": "Manual",
+      "preview": "Preview",
+      "refund": "Refund",
+      "reward": "Reward",
+      "subscription": "Subscription",
+      "topup": "Credit pack",
+      "trial_subscription": "Trial Subscription",
+      "usage": "Usage"
+    },
+    "creditLedgerTypeLabels": {
+      "adjustment": "Credit Adjustment",
+      "consume": "Credit Consumption",
+      "debug_consume": "Debug Consumption",
+      "expire": "Credit Expiry",
+      "gift_expire": "Gift Credit Expiry",
+      "gift_grant": "Gift Grant",
+      "grant": "Credit Grant",
+      "hold": "Credit Hold",
+      "learning_consume": "Learning Consumption",
+      "manual_credit": "Manual Credit",
+      "manual_debit": "Manual Debit",
+      "manual_grant": "Manual Grant",
+      "preview_consume": "Preview Consumption",
+      "refund": "Refund Return",
+      "refund_return": "Refund Return",
+      "release": "Credit Release",
+      "subscription_expire": "Subscription Credit Expiry",
+      "subscription_grant": "Subscription Grant",
+      "topup_expire": "Credit Pack Expiry",
+      "topup_grant": "Credit Pack Grant",
+      "trial_subscription_grant": "Trial Subscription Grant"
+    },
+    "creditLedgerUsageSceneLabels": {
+      "debug": "Debug",
+      "learning": "Learning",
+      "preview": "Preview"
+    },
+    "creditUsageDetail": {
+      "actions": {
+        "open": "Details",
+        "openAriaLabel": "View credit usage details"
+      },
+      "collapse": "Collapse",
+      "columns": {
+        "consumedCredits": "Credits",
+        "createdAt": "Consumed At",
+        "inputTokens": "Input Tokens",
+        "outputSummary": "Output Summary",
+        "outputTokens": "Output Tokens",
+        "ttsContent": "Synthesized Content",
+        "ttsDuration": "Audio Duration",
+        "ttsSegmentCount": "Segments",
+        "ttsWordCount": "Synthesized Words"
+      },
+      "description": "Shows output content and credits used for this settlement when available.",
+      "durationMinutesSeconds": "{minutes}m {seconds}s",
+      "durationSeconds": "{seconds}s",
+      "empty": "No usage details",
+      "error": "Failed to load usage details",
+      "expand": "Expand",
+      "loading": "Loading",
+      "title": "Credit Usage Details"
+    },
+    "creditsOverview": "Credits Overview",
+    "creditsOverviewLabels": {
+      "availableCredits": "Total Credit Balance",
+      "creditsExpireAt": "Credits Validity",
+      "subscriptionCredits": "Subscription Credit Balance",
+      "topupCredits": "Credit Pack Credit Balance"
+    },
+    "emptyCourses": "No courses",
+    "emptyCredits": "No credit entries",
+    "learningCourses": "Learning Courses",
+    "learningProgress": "Progress",
+    "loadingCredits": "Loading",
+    "overview": "Overview",
+    "tabs": {
+      "createdCourses": "Created Courses",
+      "credits": "Credits Detail",
+      "learningCourses": "Learning Courses"
+    },
+    "title": "User Detail"
+  },
+  "emptyList": "No users",
+  "filters": {
+    "createdAt": "Created At",
+    "email": "Email",
+    "mobile": "Mobile",
+    "nickname": "Nickname",
+    "role": "Role",
+    "status": "Status"
+  },
+  "grantDialog": {
+    "bootstrapError": "Failed to load packages. Please try again later.",
+    "confirmButton": "Confirm Grant",
+    "confirmDescription": "Please confirm the credit grant details. Once confirmed, it takes effect immediately.",
+    "confirmSummary": {
+      "amount": "Granted Credits",
+      "mode": "Grant Type",
+      "note": "Note",
+      "package": "Package",
+      "packageCredits": "Credits",
+      "packageExpireAt": "Estimated Valid Until",
+      "packageValidity": "Validity",
+      "referralCurrentCredits": "Current Referral Reward Credits",
+      "referralCurrentExpireAt": "Current Referral Reward Valid Until",
+      "referralEstimatedCredits": "Estimated Credits After Grant",
+      "referralEstimatedExpireAt": "Estimated Valid Until After Grant",
+      "referralGrantCount": "Rewarded Referral Count",
+      "source": "Source",
+      "validityPreset": "Validity"
+    },
+    "confirmTitle": "Confirm Credit Grant",
+    "description": "Use this dialog to grant credits or a package to teacher or operator users from Operations.",
+    "fields": {
+      "amount": "Credits",
+      "mode": "Grant Type",
+      "note": "Note",
+      "source": "Source",
+      "validityPreset": "Validity"
+    },
+    "modeOptions": {
+      "credits": "Grant Credits",
+      "package": "Grant Package",
+      "referralReward": "Referral Reward"
+    },
+    "packageConfirmDescription": "Please confirm the package grant details. Once confirmed, it takes effect immediately.",
+    "packageConfirmTitle": "Confirm Package Grant",
+    "packageFields": {
+      "credits": "Credits",
+      "expiryHintPending": "The package takes effect immediately after the grant succeeds, and the valid-until time will be calculated automatically from the package validity.",
+      "expiryHintResolved": "The package takes effect immediately after the grant succeeds. Estimated valid until: {dateTime}.",
+      "packageName": "Package Name",
+      "product": "Package",
+      "validity": "Validity"
+    },
+    "placeholders": {
+      "amount": "Enter credit amount",
+      "note": "Optional. Record the reason for this grant",
+      "product": "Select a package",
+      "productLoading": "Loading packages...",
+      "referralRewardAmount": "Enter reward credits",
+      "source": "Select source",
+      "validityPreset": "Select validity"
+    },
+    "referralReward": {
+      "bootstrapError": "Failed to load referral reward data. Please try again later.",
+      "bootstrapLoading": "Loading referral reward data...",
+      "currentCredits": "Current Referral Reward Credits",
+      "currentExpireAt": "Current Referral Reward Valid Until",
+      "description": "Each referral reward grant adds the entered credits and extends the current referral reward validity by 1 month.",
+      "emptyDescription": "If there is no active referral reward, validity starts from the grant time and lasts 1 month.",
+      "grantCount": "Rewarded Referral Count",
+      "grantCountTooltip": "The data source is temporarily based on the number of referral reward grants.",
+      "noActiveReward": "No active referral reward",
+      "oneMonth": "1 month",
+      "validity": "Validity"
+    },
+    "referralRewardConfirmDescription": "Please confirm the referral reward grant details. Once confirmed, it takes effect immediately.",
+    "referralRewardConfirmTitle": "Confirm Referral Reward Grant",
+    "sourceOptions": {
+      "compensation": "Compensation",
+      "reward": "Reward"
+    },
+    "submitButton": "Confirm",
+    "submitSuccess": "Grant succeeded",
+    "summary": {
+      "account": "Account",
+      "availableCredits": "Credit Balance",
+      "currentExpireAt": "Valid Until",
+      "currentPackage": "Current Package",
+      "nickname": "Nickname",
+      "package": "Package"
+    },
+    "title": "Grant Credits/Package",
+    "validation": {
+      "amountRequired": "Enter a credit amount greater than 0",
+      "productRequired": "Select a package",
+      "referralRewardAmountRequired": "Enter a positive integer credit amount",
+      "sourceRequired": "Select a source",
+      "validityPresetRequired": "Select a validity preset"
+    },
+    "validityHint": "If there is no active subscription, the validity cannot be set to \"Match current subscription expiry\".",
+    "validityOptions": {
+      "alignSubscription": "Match current subscription expiry",
+      "oneDay": "1 day after grant",
+      "oneMonth": "1 month after grant",
+      "oneYear": "1 year after grant",
+      "sevenDays": "7 days after grant",
+      "threeMonths": "3 months after grant"
+    }
+  },
+  "loginMethodLabels": {
+    "email": "Email",
+    "google": "Google",
+    "phone": "Mobile",
+    "unknown": "Unknown",
+    "wechat": "WeChat"
+  },
+  "overview": {
+    "activeFilter": "Quick Filter",
+    "metrics": {
+      "creators": "Teachers",
+      "guests": "Guests",
+      "learners": "Learners",
+      "learningActive30d": "Active Learners (30d)",
+      "newUsers30d": "New Users (30d)",
+      "paidUsers": "Paid Users",
+      "paidUsers30d": "Paid Users (30d)",
+      "registeredUsers": "Registered Users",
+      "registeredUsers30d": "Registered Users (30d)",
+      "totalUsers": "Total Users"
+    },
+    "staleData": "Overview refresh failed. Showing the last successful snapshot.",
+    "title": "Overview",
+    "tooltips": {
+      "creators": "Teacher users",
+      "guests": "Guest users",
+      "learners": "Users with learning records",
+      "learningActive30d": "Users with learning activity in the last 30 days",
+      "newUsers30d": "New users in the last 30 days",
+      "paidUsers": "Users in paid status (including imported activations)",
+      "paidUsers30d": "Users who paid successfully in the last 30 days (including imported activations)",
+      "registeredUsers": "Registered users",
+      "registeredUsers30d": "Users who completed registration in the last 30 days",
+      "totalUsers": "All users"
+    }
+  },
+  "registrationSourceLabels": {
+    "email": "Email",
+    "google": "Google",
+    "imported": "Imported",
+    "phone": "Mobile",
+    "unknown": "Unknown",
+    "wechat": "WeChat"
+  },
+  "roleLabels": {
+    "creator": "Teacher",
+    "learner": "Learner",
+    "operator": "Operator",
+    "regular": "Regular",
+    "unknown": "Unknown"
+  },
+  "statusLabels": {
+    "paid": "Paid",
+    "registered": "Registered",
+    "unknown": "Unknown",
+    "unregistered": "Unregistered"
+  },
+  "table": {
+    "action": "Action",
+    "availableCredits": "Total Credits",
+    "createdAt": "Created At",
+    "createdCourses": "Created Courses",
+    "creditsExpireAt": "Credits Expire At",
+    "email": "Email",
+    "guestUser": "Guest",
+    "lastLearningAt": "Last Learning",
+    "lastLoginAt": "Last Login",
+    "learningCourses": "Learning Courses",
+    "loginMethods": "Login Methods",
+    "mobile": "Mobile",
+    "nickname": "Nickname",
+    "registrationSource": "Registration Source",
+    "role": "Role",
+    "status": "Status",
+    "subscriptionCredits": "Subscription Credits",
+    "topupCredits": "Credit Pack Credits",
+    "totalPaidAmount": "Total Paid",
+    "updatedAt": "Updated At",
+    "userId": "User ID"
+  },
+  "title": "User Management"
+}
