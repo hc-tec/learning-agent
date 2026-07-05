@@ -1,4 +1,5 @@
 import type { Config } from 'tailwindcss';
+import tailwindcssAnimate from 'tailwindcss-animate';
 
 export default {
   darkMode: 'selector',
@@ -80,5 +81,5 @@ export default {
       },
     },
   },
-  plugins: [require('tailwindcss-animate')], // eslint-disable-line
+  plugins: [tailwindcssAnimate],
 } satisfies Config;

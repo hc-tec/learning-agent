@@ -21,6 +21,8 @@ from flaskr.service.tokui.common import (
     TOKUI_STATUS_VALIDATED,
     json_dumps,
     json_loads,
+    normalize_interaction_points,
+    normalize_material_refs,
     schema_hash,
     stable_hash,
 )
@@ -89,14 +91,22 @@ def _ensure_progress_record(
 
 
 def _template_to_generation_payload(template: PublishedTokuiTemplate) -> dict[str, Any]:
+    generation_options = json_loads(template.generation_options, {})
+    interaction_points = normalize_interaction_points(
+        generation_options.get("interaction_points")
+    )
     return {
         "teacher_intent": template.teacher_intent or "",
         "prompt_template": template.prompt_template or "",
         "concept": template.concept or "",
         "audience": template.audience or "",
-        "material_refs": json_loads(template.material_refs, []),
+        "material_refs": normalize_material_refs(json_loads(template.material_refs, [])),
         "media_refs": json_loads(template.media_refs, []),
-        "generation_options": json_loads(template.generation_options, {}),
+        "interaction_points": interaction_points,
+        "generation_options": {
+            **generation_options,
+            "interaction_points": interaction_points,
+        },
         "context_policy": json_loads(template.context_policy, {}),
     }
 
@@ -148,8 +158,13 @@ def _build_learner_context(
             "status": progress_record.status,
             "block_position": progress_record.block_position,
         },
-        "teacher_material_refs": json_loads(template.material_refs, []),
+        "teacher_material_refs": normalize_material_refs(
+            json_loads(template.material_refs, [])
+        ),
         "teacher_media_refs": json_loads(template.media_refs, []),
+        "teacher_interaction_points": normalize_interaction_points(
+            json_loads(template.generation_options, {}).get("interaction_points")
+        ),
         "tokui_responses": _load_existing_responses(
             user_bid, shifu_bid, outline.outline_item_bid
         ),

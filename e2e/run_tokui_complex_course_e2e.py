@@ -27,6 +27,8 @@ import asyncio
 import base64
 import json
 import os
+import shutil
+import subprocess
 import struct
 import sys
 import threading
@@ -55,6 +57,11 @@ FAKE_IMAGE_PROVIDER_PUBLIC_URL = os.getenv(
     "E2E_IMAGE_PROVIDER_PUBLIC_URL",
     f"http://host.docker.internal:{FAKE_IMAGE_PROVIDER_PORT}/v1",
 ).rstrip("/")
+TOKUI_VALIDATOR_PORT = int(os.getenv("E2E_TOKUI_VALIDATOR_PORT", "5811"))
+TOKUI_VALIDATOR_HEALTH_URL = os.getenv(
+    "E2E_TOKUI_VALIDATOR_HEALTH_URL",
+    f"http://127.0.0.1:{TOKUI_VALIDATOR_PORT}/health",
+)
 CONTROLLED_MODEL = "tokui-e2e-controlled"
 
 def solid_png_b64(width: int, height: int, rgb: tuple[int, int, int]) -> str:
@@ -201,6 +208,54 @@ def start_fake_image_provider() -> ThreadingHTTPServer:
     return server
 
 
+def _tokui_validator_is_healthy() -> bool:
+    try:
+        response = requests.get(TOKUI_VALIDATOR_HEALTH_URL, timeout=3)
+        return response.ok
+    except Exception:
+        return False
+
+
+def start_tokui_validator_if_needed() -> subprocess.Popen[bytes] | None:
+    if _tokui_validator_is_healthy():
+        return None
+
+    repo_root = Path(__file__).resolve().parents[1]
+    script_path = repo_root / "src" / "cook-web" / "scripts" / "validate-tokui-server.mjs"
+    if not script_path.exists():
+        raise CheckFailed(f"TokUI validator server script not found: {script_path}")
+
+    node_bin = os.getenv("E2E_NODE_BIN") or shutil.which("node")
+    fallback_node = Path("D:/apps/nodejs/node.exe")
+    if not node_bin and fallback_node.exists():
+        node_bin = str(fallback_node)
+    if not node_bin:
+        raise CheckFailed("node executable not found for TokUI validator server")
+
+    env = os.environ.copy()
+    env["TOKUI_VALIDATOR_HOST"] = "0.0.0.0"
+    env["TOKUI_VALIDATOR_PORT"] = str(TOKUI_VALIDATOR_PORT)
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    process = subprocess.Popen(
+        [node_bin, str(script_path)],
+        cwd=str(repo_root / "src" / "cook-web"),
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=creationflags,
+    )
+    for _ in range(30):
+        if process.poll() is not None:
+            raise CheckFailed(
+                f"TokUI validator server exited early with code {process.returncode}"
+            )
+        if _tokui_validator_is_healthy():
+            return process
+        time.sleep(0.5)
+    process.terminate()
+    raise CheckFailed("TokUI validator server did not become healthy")
+
+
 class ApiClient:
     def __init__(self, base_url: str) -> None:
         self.base_url = base_url
@@ -309,18 +364,49 @@ def build_image_config_restore_payload(previous: dict[str, Any]) -> dict[str, An
 def base_template(media_refs: list[dict[str, Any]] | None = None, *, version: str) -> dict[str, Any]:
     return {
         "teacher_intent": (
-            f"E2E_VERSION_{version}: learner can explain a multi-step pressure "
-            "transfer concept using multiple images and answer-dependent feedback."
+            f"E2E_VERSION_{version}: learner can explain China's four railway "
+            "types in plain language and map business requests to the right type."
         ),
         "prompt_template": (
-            f"E2E_VERSION_{version}: Use a detailed three-stage teaching sequence. "
-            "First compare two images, then collect learner background, explanation, "
-            "and confidence in one checkpoint. After the answer, diagnose it and ask "
-            "one follow-up. After that, use both rounds to give targeted feedback."
+            f"E2E_VERSION_{version}: Use a detailed railway industry lesson. "
+            "First explain why railways are classified by speed and freight/passenger "
+            "function, then teach high-speed, intercity, mixed passenger/freight, "
+            "and heavy-haul railways with concrete business examples. Insert multiple "
+            "materials at their specified positions. Ask Feynman-style checks, then "
+            "use learner answers to continue with targeted correction instead of "
+            "repeating the same question."
         ),
-        "concept": "E2E complex TokUI pressure transfer",
-        "audience": "technical beginner",
-        "material_refs": [],
+        "concept": "铁路行业基本格局与分类",
+        "audience": "铁路数智化部门新人",
+        "material_refs": [
+            {
+                "placement_id": "railway_scene_video",
+                "position": "1",
+                "insertion_point": "讲完四类铁路的文字讲解后，立即插入",
+                "media_type": "video",
+                "title": "四类铁路实景对比短片",
+                "description": "高铁、城际、客货共线、重载四段实景分屏对比，带速度、功能和特点字幕。",
+                "purpose": "用直观视觉差异替代抽象文字，避免死记硬背。",
+            },
+            {
+                "placement_id": "railway_compare_chart",
+                "position": "2",
+                "insertion_point": "视频播放结束后立即插入",
+                "media_type": "image",
+                "title": "中国四类铁路核心参数对比图",
+                "description": "横向四栏对比高铁、城际、客货共线、重载铁路的速度、功能、特点和数智化侧重。",
+                "purpose": "把零散知识点结构化，方便回顾记忆。",
+            },
+            {
+                "placement_id": "eight_vertical_eight_horizontal_map",
+                "position": "3",
+                "insertion_point": "讲完八纵八横概念后立即插入",
+                "media_type": "image",
+                "title": "中国高铁八纵八横主通道示意图",
+                "description": "简化中国地图，突出八纵八横和武汉、沿江通道。",
+                "purpose": "建立空间认知，让新人理解全国路网和本院业务区域。",
+            },
+        ],
         "media_refs": media_refs or [],
         "generation_options": {
             "model": CONTROLLED_MODEL,
@@ -328,6 +414,38 @@ def base_template(media_refs: list[dict[str, Any]] | None = None, *, version: st
             "interaction_mode": "checkpoint",
             "blocking_checkpoint": True,
             "e2e_controlled_llm": True,
+            "interaction_points": [
+                {
+                    "interaction_id": "railway_business_mapping_check",
+                    "position": "1",
+                    "kind": "feynman_check",
+                    "prompt": "客户说要做万吨列车制动系统健康预测，这属于哪类铁路？",
+                    "response_schema": {"field_type": "text"},
+                    "blocking": True,
+                    "continue_on_submit": True,
+                    "continuation_hint": "根据答案判断学生是否理解重载铁路的业务诉求。",
+                },
+                {
+                    "interaction_id": "intercity_flow_check",
+                    "position": "2",
+                    "kind": "scenario_mapping",
+                    "prompt": "市域内通勤客流预测系统大概率对应哪类铁路？",
+                    "response_schema": {"field_type": "choice"},
+                    "blocking": False,
+                    "continue_on_submit": False,
+                    "continuation_hint": "用答案补强城际铁路和高铁的区别。",
+                },
+                {
+                    "interaction_id": "high_speed_freight_reasoning",
+                    "position": "3",
+                    "kind": "explain_in_own_words",
+                    "prompt": "用自己的话解释为什么高铁一般不跑货运列车。",
+                    "response_schema": {"field_type": "text"},
+                    "blocking": True,
+                    "continue_on_submit": True,
+                    "continuation_hint": "针对学生的原因解释补充线路平顺度、安全和运营规则差异。",
+                },
+            ],
         },
         "context_policy": {
             "allowed_context": [
@@ -694,6 +812,28 @@ def run_course_matrix(client: ApiClient) -> dict[str, Any]:
         saved_v1.get("media_refs"),
     )
     recorder.check(
+        "teacher_design_has_multiple_material_placements",
+        len(saved_v1.get("material_refs") or []) >= 3
+        and any(
+            "四类铁路实景对比短片" in str(item.get("title") or "")
+            for item in saved_v1.get("material_refs") or []
+            if isinstance(item, dict)
+        ),
+        "teacher course design persisted multiple material insertion points",
+        saved_v1.get("material_refs"),
+    )
+    recorder.check(
+        "teacher_design_has_multiple_interaction_points",
+        len(saved_v1.get("interaction_points") or []) >= 3
+        and any(
+            item.get("blocking") is True
+            for item in saved_v1.get("interaction_points") or []
+            if isinstance(item, dict)
+        ),
+        "teacher course design persisted multiple answer-dependent checkpoints",
+        saved_v1.get("interaction_points"),
+    )
+    recorder.check(
         "controlled_guidance_is_detailed_and_staged",
         "Stage 1" in str(guidance.get("prompt_template") or "")
         and "Stage 2" in str(guidance.get("prompt_template") or "")
@@ -942,33 +1082,64 @@ async def verify_learner_browser_rendering(ids: dict[str, str], token: str) -> d
         await maybe_await(page.goto(TARGET_URL))
         await page.evaluate(
             """
-            (token) => {
-              localStorage.setItem('token', token);
-              localStorage.setItem('token_faked', '0');
-              document.cookie = `token=${token}; path=/`;
+            (...args) => {
+              const token = args[0];
+              try {
+                localStorage.setItem('token', token);
+                localStorage.setItem('token_faked', '0');
+                document.cookie = `token=${token}; path=/`;
+              } catch {}
             }
             """,
             token,
         )
-        await maybe_await(session.navigate_to(learner_url))
+        await maybe_await(page.goto(learner_url))
         await asyncio.sleep(8)
         dom = await page.evaluate(
             """
-            () => {
+            (...args) => {
+              const shifuBid = args[0];
+              const outlineBid = args[1];
               const root = document.querySelector('[data-testid="learner-tokui-block"]');
               const renderer = document.querySelector('[data-testid="tokui-renderer-root"]');
               const images = Array.from(document.querySelectorAll('[data-testid="learner-tokui-block"] img, [data-testid="learner-tokui-block"] [role="img"]'));
-              return {
-                href: location.href,
-                title: document.title,
-                hasLearnerTokuiBlock: Boolean(root),
-                hasRenderer: Boolean(renderer),
-                bodyText: document.body ? document.body.innerText.slice(0, 3000) : '',
-                imageCount: images.length,
-                imageSources: images.map((el) => el.getAttribute('src') || el.getAttribute('style') || '')
+              const collect = async () => {
+                const token = localStorage.getItem('token') || '';
+                const result = {
+                  href: location.href,
+                  title: document.title,
+                  tokenLength: token.length,
+                  tokenFaked: localStorage.getItem('token_faked') || '',
+                  hasLearnerTokuiBlock: Boolean(root),
+                  hasRenderer: Boolean(renderer),
+                  bodyText: document.body ? document.body.innerText.slice(0, 3000) : '',
+                  imageCount: images.length,
+                  imageSources: images.map((el) => el.getAttribute('src') || el.getAttribute('style') || '')
+                };
+                try {
+                  result.apiConfig = await (await fetch('/api/config')).json();
+                } catch (error) {
+                  result.apiConfigError = String(error);
+                }
+                try {
+                  const response = await fetch(`/api/learn/shifu/${shifuBid}/outlines/${outlineBid}/tokui`, {
+                    headers: {
+                      Token: token,
+                      Authorization: `Bearer ${token}`,
+                    },
+                  });
+                  result.learnerFetchStatus = response.status;
+                  result.learnerFetchText = (await response.text()).slice(0, 1200);
+                } catch (error) {
+                  result.learnerFetchError = String(error);
+                }
+                return result;
               };
+              return collect();
             }
-            """
+            """,
+            ids["shifu_bid"],
+            ids["outline_bid"],
         )
         if isinstance(dom, str):
             dom = json.loads(dom)
@@ -980,6 +1151,7 @@ async def verify_learner_browser_rendering(ids: dict[str, str], token: str) -> d
 
 
 async def main() -> int:
+    validator_process = start_tokui_validator_if_needed()
     fake_provider = start_fake_image_provider()
     result: dict[str, Any] = {
         "passed": False,
@@ -1031,6 +1203,12 @@ async def main() -> int:
             }
         )
     finally:
+        if validator_process is not None:
+            validator_process.terminate()
+            try:
+                validator_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                validator_process.kill()
         if client is not None and restore_payload is not None:
             try:
                 result["imageConfigRestore"] = client.request(

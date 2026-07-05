@@ -91,6 +91,102 @@ def normalize_media_refs(value: Any) -> list[dict[str, str]]:
     return normalized
 
 
+def normalize_material_refs(value: Any) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    normalized: list[dict[str, str]] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            continue
+        resource_id = str(
+            item.get("resource_id")
+            or item.get("resource_bid")
+            or item.get("id")
+            or ""
+        ).strip()
+        url = str(item.get("url") or item.get("src") or "").strip()
+        media_type = str(item.get("media_type") or item.get("type") or "image").strip()
+        if media_type not in {"image", "video"}:
+            media_type = "image"
+        normalized.append(
+            {
+                "placement_id": str(
+                    item.get("placement_id") or item.get("bid") or f"material_{index + 1}"
+                ).strip(),
+                "position": str(item.get("position") or index + 1).strip(),
+                "insertion_point": str(item.get("insertion_point") or "").strip(),
+                "media_type": media_type,
+                "title": str(item.get("title") or item.get("name") or "").strip(),
+                "description": str(
+                    item.get("description")
+                    or item.get("generation_prompt")
+                    or item.get("prompt")
+                    or ""
+                ).strip(),
+                "purpose": str(item.get("purpose") or "").strip(),
+                "resource_id": resource_id,
+                "url": url,
+            }
+        )
+    return [
+        item
+        for item in normalized
+        if item["title"]
+        or item["description"]
+        or item["insertion_point"]
+        or item["purpose"]
+        or item["resource_id"]
+        or item["url"]
+    ]
+
+
+def normalize_interaction_points(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    normalized: list[dict[str, Any]] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            continue
+        response_schema = item.get("response_schema")
+        if not isinstance(response_schema, dict):
+            response_schema = {}
+        blocking = bool(item.get("blocking", item.get("blocking_behavior", False)))
+        continue_on_submit_value = item.get("continue_on_submit")
+        continue_on_submit = (
+            bool(continue_on_submit_value)
+            if continue_on_submit_value is not None
+            else blocking
+        )
+        normalized.append(
+            {
+                "interaction_id": str(
+                    item.get("interaction_id")
+                    or item.get("field_id")
+                    or item.get("id")
+                    or f"interaction_{index + 1}"
+                ).strip(),
+                "position": str(item.get("position") or index + 1).strip(),
+                "kind": str(item.get("kind") or "checkpoint").strip(),
+                "prompt": str(item.get("prompt") or item.get("question") or "").strip(),
+                "response_schema": response_schema,
+                "blocking": blocking,
+                "continue_on_submit": continue_on_submit,
+                "downstream_context_policy": str(
+                    item.get("downstream_context_policy") or ""
+                ).strip(),
+                "continuation_hint": str(item.get("continuation_hint") or "").strip(),
+            }
+        )
+    return [
+        item
+        for item in normalized
+        if item["prompt"]
+        or item["downstream_context_policy"]
+        or item["continuation_hint"]
+        or item["response_schema"]
+    ]
+
+
 def schema_hash(interaction_schema: Any) -> str:
     return stable_hash(interaction_schema if isinstance(interaction_schema, list) else [])
 

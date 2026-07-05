@@ -28,6 +28,8 @@ from flaskr.service.tokui.common import (
     extract_json_object,
     json_dumps,
     json_loads,
+    normalize_interaction_points,
+    normalize_material_refs,
     normalize_media_refs,
     template_hash,
 )
@@ -42,6 +44,7 @@ TOKUI_DEFAULT_CONTEXT_POLICY = {
         "chapter_title",
         "outline_title",
         "teacher_material_refs",
+        "teacher_media_refs",
         "learning_progress",
         "prior_learning_summary",
         "tokui_responses",
@@ -317,6 +320,10 @@ def _active_draft_template(
 def _serialize_template(template: DraftTokuiTemplate | PublishedTokuiTemplate | None) -> dict[str, Any]:
     if not template:
         return {}
+    generation_options = json_loads(template.generation_options, {})
+    interaction_points = normalize_interaction_points(
+        generation_options.get("interaction_points")
+    )
     return {
         "tokui_template_bid": getattr(template, "tokui_template_bid", "")
         or getattr(template, "published_template_bid", ""),
@@ -328,9 +335,13 @@ def _serialize_template(template: DraftTokuiTemplate | PublishedTokuiTemplate | 
         "prompt_template": template.prompt_template or "",
         "concept": template.concept or "",
         "audience": template.audience or "",
-        "material_refs": json_loads(template.material_refs, []),
+        "material_refs": normalize_material_refs(json_loads(template.material_refs, [])),
         "media_refs": json_loads(template.media_refs, []),
-        "generation_options": json_loads(template.generation_options, {}),
+        "interaction_points": interaction_points,
+        "generation_options": {
+            **generation_options,
+            "interaction_points": interaction_points,
+        },
         "context_policy": json_loads(template.context_policy, TOKUI_DEFAULT_CONTEXT_POLICY),
         "preview_dsl": getattr(template, "preview_dsl", "") or "",
         "preview_interaction_schema": json_loads(
@@ -362,12 +373,22 @@ def _template_payload_from_request(payload: dict[str, Any]) -> dict[str, Any]:
         raise_param_error("generation_options")
     if not isinstance(context_policy, dict):
         raise_param_error("context_policy")
+    interaction_points = _as_json_value(
+        payload.get("interaction_points"), generation_options.get("interaction_points", [])
+    )
+    if not isinstance(interaction_points, list):
+        raise_param_error("interaction_points")
+    normalized_interaction_points = normalize_interaction_points(interaction_points)
+    generation_options = {
+        **generation_options,
+        "interaction_points": normalized_interaction_points,
+    }
     return {
         "teacher_intent": str(payload.get("teacher_intent") or "").strip(),
         "prompt_template": str(payload.get("prompt_template") or "").strip(),
         "concept": str(payload.get("concept") or "").strip(),
         "audience": str(payload.get("audience") or "").strip(),
-        "material_refs": material_refs,
+        "material_refs": normalize_material_refs(material_refs),
         "media_refs": normalize_media_refs(media_refs),
         "generation_options": generation_options,
         "context_policy": context_policy,
@@ -432,6 +453,10 @@ def _build_generation_prompt(
     generation_options = template_payload.get("generation_options") or {}
     interaction_mode = str(generation_options.get("interaction_mode") or "").strip()
     checkpoint_required = bool(generation_options.get("blocking_checkpoint"))
+    interaction_points = normalize_interaction_points(
+        generation_options.get("interaction_points")
+    )
+    material_refs = normalize_material_refs(template_payload.get("material_refs"))
     interaction_policy = (
         "- The teacher selected CHECKPOINT mode. You must include one meaningful "
         "learner-fillable checkpoint unless saved tokui_responses already answer "
@@ -441,6 +466,21 @@ def _build_generation_prompt(
         else "- The teacher selected NORMAL interaction mode. Add learner input only "
         "when the teaching guide asks for it; do not mark fields as blocking "
         "unless later content truly depends on the answer.\n"
+    )
+    if interaction_points:
+        interaction_policy += (
+            "- The teacher provided explicit interaction/check points. Treat them "
+            "as course design requirements, not suggestions. Generate at most the "
+            "next unanswered blocking point at this runtime step; after the answer "
+            "is saved, continue with the next dependent explanation or checkpoint.\n"
+        )
+    material_policy = (
+        "- The teacher provided structured material placements. Use their "
+        "insertion_point, title, description, purpose, media_type, and stable "
+        "resource URL/ID to decide where each image/video belongs. A lesson may "
+        "have many materials; do not collapse them into one generic image.\n"
+        if material_refs
+        else ""
     )
     repair_section = ""
     if validation_errors:
@@ -499,6 +539,7 @@ Rules:
 - When Runtime context JSON contains tokui_responses, use those answers to
   generate the next appropriate teaching content instead of asking the same
   checkpoint again.
+{material_policy}
 {interaction_policy}
 
 Teacher template JSON:
@@ -518,6 +559,10 @@ def _build_guidance_prompt(
     generation_options = template_payload.get("generation_options") or {}
     interaction_mode = str(generation_options.get("interaction_mode") or "").strip()
     checkpoint_required = bool(generation_options.get("blocking_checkpoint"))
+    interaction_points = normalize_interaction_points(
+        generation_options.get("interaction_points")
+    )
+    material_refs = normalize_material_refs(template_payload.get("material_refs"))
     interaction_policy = (
         "The lesson must include one blocking checkpoint question. Explain what "
         "the checkpoint diagnoses, what counts as a good answer, what common "
@@ -526,6 +571,23 @@ def _build_guidance_prompt(
         if checkpoint_required or interaction_mode == "checkpoint"
         else "Only ask for learner input when it improves the lesson. Do not make "
         "an interaction blocking unless later content truly depends on that answer."
+    )
+    material_policy = (
+        "The teacher has listed structured material placements. Preserve each "
+        "placement's insertion point, role, media type, title, and teaching purpose "
+        "in the guide so generation can render multiple images/videos at the right "
+        "moments."
+        if material_refs
+        else "If media would help, describe exactly what kind of image or video "
+        "would be useful and where it should appear."
+    )
+    explicit_interaction_policy = (
+        "The teacher has listed explicit interaction/check points. Preserve all of "
+        "them, explain what each diagnoses, which ones block later content, and how "
+        "later generation should use each learner answer."
+        if interaction_points
+        else "If the lesson needs checks, describe multiple possible checkpoints "
+        "instead of assuming one lesson has only one learner input."
     )
     return f"""
 You are helping a teacher write a detailed AI teaching guide for TokUI lesson generation.
@@ -550,6 +612,12 @@ Language:
 
 Interaction policy:
 {interaction_policy}
+
+Material policy:
+{material_policy}
+
+Explicit interaction points policy:
+{explicit_interaction_policy}
 
 Teacher draft JSON:
 {json_dumps(template_payload, {})}
@@ -729,7 +797,9 @@ def generate_teacher_tokui_guidance(
             "mode": "teacher_guidance_authoring",
             "course": {"shifu_bid": shifu_bid},
             "outline": {"outline_item_bid": outline_bid, "title": outline.title},
+            "teacher_material_refs": template.get("material_refs") or [],
             "teacher_media_refs": template.get("media_refs") or [],
+            "teacher_interaction_points": template.get("interaction_points") or [],
         }
         guidance = _invoke_guidance_llm(
             app,
@@ -767,7 +837,9 @@ def generate_teacher_tokui_preview(
             "course": {"shifu_bid": shifu_bid},
             "outline": {"outline_item_bid": outline_bid, "title": outline.title},
             "sample_learner_context": payload.get("sample_context") or {},
+            "teacher_material_refs": template.get("material_refs") or [],
             "teacher_media_refs": template.get("media_refs") or [],
+            "teacher_interaction_points": template.get("interaction_points") or [],
         }
         generated = _invoke_tokui_llm(
             app,

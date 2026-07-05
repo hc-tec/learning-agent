@@ -1,5 +1,14 @@
-from flaskr.service.tokui.common import normalize_interaction_schema, normalize_media_refs
-from flaskr.service.shifu.shifu_tokui_funcs import _build_guidance_prompt
+from flaskr.service.tokui.common import (
+    normalize_interaction_points,
+    normalize_interaction_schema,
+    normalize_material_refs,
+    normalize_media_refs,
+)
+from flaskr.service.shifu.shifu_tokui_funcs import (
+    _build_generation_prompt,
+    _build_guidance_prompt,
+    _template_payload_from_request,
+)
 
 
 def test_normalize_interaction_schema_preserves_blocking_checkpoint_fields():
@@ -80,6 +89,93 @@ def test_normalize_media_refs_keeps_stable_resource_fields():
     ]
 
 
+def test_normalize_material_refs_keeps_course_design_placement_fields():
+    normalized = normalize_material_refs(
+        [
+            {
+                "placement_id": "material-a",
+                "position": 2,
+                "insertion_point": "讲完四类铁路后立即插入",
+                "media_type": "video",
+                "title": "四类铁路实景对比短片",
+                "prompt": "高铁、城际、客货共线、重载分屏对比",
+                "purpose": "建立直观体感",
+                "resource_bid": "resource-video",
+                "src": "https://example.test/railway.mp4",
+            },
+            {},
+        ]
+    )
+
+    assert normalized == [
+        {
+            "placement_id": "material-a",
+            "position": "2",
+            "insertion_point": "讲完四类铁路后立即插入",
+            "media_type": "video",
+            "title": "四类铁路实景对比短片",
+            "description": "高铁、城际、客货共线、重载分屏对比",
+            "purpose": "建立直观体感",
+            "resource_id": "resource-video",
+            "url": "https://example.test/railway.mp4",
+        }
+    ]
+
+
+def test_normalize_interaction_points_preserves_blocking_dependency_design():
+    normalized = normalize_interaction_points(
+        [
+            {
+                "field_id": "railway_type_check",
+                "position": 3,
+                "kind": "feynman_check",
+                "question": "万吨列车制动健康预测属于哪类铁路？",
+                "response_schema": {"field_type": "text"},
+                "blocking": True,
+                "continuation_hint": "根据答案补讲重载铁路和高铁的业务差异",
+            }
+        ]
+    )
+
+    assert normalized == [
+        {
+            "interaction_id": "railway_type_check",
+            "position": "3",
+            "kind": "feynman_check",
+            "prompt": "万吨列车制动健康预测属于哪类铁路？",
+            "response_schema": {"field_type": "text"},
+            "blocking": True,
+            "continue_on_submit": True,
+            "downstream_context_policy": "",
+            "continuation_hint": "根据答案补讲重载铁路和高铁的业务差异",
+        }
+    ]
+
+
+def test_template_payload_stores_interaction_points_in_generation_options():
+    payload = _template_payload_from_request(
+        {
+            "teacher_intent": "学生能区分四类铁路",
+            "prompt_template": "按速度和功能逐类精讲",
+            "material_refs": [{"title": "对比图"}],
+            "media_refs": [],
+            "interaction_points": [
+                {
+                    "question": "为什么高铁一般不跑货运列车？",
+                    "blocking": True,
+                }
+            ],
+            "generation_options": {"model": "tokui-e2e-controlled"},
+            "context_policy": {},
+        }
+    )
+
+    assert payload["material_refs"][0]["title"] == "对比图"
+    assert payload["generation_options"]["interaction_points"][0]["prompt"] == (
+        "为什么高铁一般不跑货运列车？"
+    )
+
+
 def test_build_guidance_prompt_treats_prompt_template_as_teaching_guide():
     prompt = _build_guidance_prompt(
         template_payload={
@@ -99,3 +195,37 @@ def test_build_guidance_prompt_treats_prompt_template_as_teaching_guide():
     assert "blocking checkpoint question" in prompt
     assert "Do not introduce any third language" in prompt
     assert "学生能判断铁路制动压力传递的关键环节" in prompt
+
+
+def test_generation_prompt_includes_material_and_interaction_design_contracts():
+    prompt = _build_generation_prompt(
+        template_payload={
+            "teacher_intent": "学生能区分四类铁路",
+            "prompt_template": "用铁路行业基本格局课程脚本授课",
+            "material_refs": [
+                {
+                    "insertion_point": "讲完四类铁路后立即插入",
+                    "media_type": "image",
+                    "title": "中国四类铁路核心参数对比图",
+                    "purpose": "结构化对比",
+                }
+            ],
+            "media_refs": [],
+            "generation_options": {
+                "interaction_mode": "checkpoint",
+                "blocking_checkpoint": True,
+                "interaction_points": [
+                    {
+                        "prompt": "客户说万吨列车制动健康预测属于哪类铁路？",
+                        "blocking": True,
+                    }
+                ],
+            },
+        },
+        context_payload={"mode": "learner_runtime", "tokui_responses": []},
+    )
+
+    assert "structured material placements" in prompt
+    assert "explicit interaction/check points" in prompt
+    assert "中国四类铁路核心参数对比图" in prompt
+    assert "万吨列车制动健康预测" in prompt
