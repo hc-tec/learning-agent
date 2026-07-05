@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  Check,
   ImageIcon,
   Loader2,
   Plus,
@@ -41,6 +42,37 @@ type TokuiMediaRef = {
   type: 'image' | 'video';
   title: string;
   description: string;
+};
+
+type TokuiImageCandidate = {
+  candidate_bid: string;
+  candidate_index: number;
+  status: 'queued' | 'generating' | 'succeeded' | 'failed';
+  resource_id?: string;
+  url?: string;
+  title?: string;
+  description?: string;
+  selected?: boolean;
+  error_message?: string;
+};
+
+type TokuiImageJob = {
+  job_bid: string;
+  retry_of_job_bid?: string;
+  status:
+    | 'queued'
+    | 'optimizing_prompt'
+    | 'generating_images'
+    | 'awaiting_selection'
+    | 'selected'
+    | 'failed'
+    | 'canceled';
+  teacher_prompt?: string;
+  optimized_prompt?: string;
+  final_provider_prompt?: string;
+  prompt_optimization_error?: string;
+  error_message?: string;
+  candidates?: TokuiImageCandidate[];
 };
 
 type TokuiTemplatePanelProps = {
@@ -102,6 +134,12 @@ const getInteractionMode = (
 ): InteractionMode =>
   generationOptions?.interaction_mode === 'normal' ? 'normal' : 'checkpoint';
 
+const isImageJobRunning = (job?: TokuiImageJob | null) =>
+  Boolean(
+    job &&
+      ['queued', 'optimizing_prompt', 'generating_images'].includes(job.status),
+  );
+
 export default function TokuiTemplatePanel({
   shifuBid,
   outlineBid,
@@ -116,6 +154,9 @@ export default function TokuiTemplatePanel({
   const [generatingGuidance, setGeneratingGuidance] = useState(false);
   const [generatingImage, setGeneratingImage] = useState(false);
   const [imagePrompt, setImagePrompt] = useState('');
+  const [currentImageJob, setCurrentImageJob] =
+    useState<TokuiImageJob | null>(null);
+  const [selectingCandidateBid, setSelectingCandidateBid] = useState('');
   const [draftMediaRef, setDraftMediaRef] = useState<TokuiMediaRef>({
     resource_id: '',
     url: '',
@@ -153,10 +194,59 @@ export default function TokuiTemplatePanel({
       .finally(() => {
         if (mounted) setLoading(false);
       });
+    api
+      .getLatestTokuiImageJob({ shifu_bid: shifuBid, outline_bid: outlineBid })
+      .then(result => {
+        if (!mounted) return;
+        const latestJob = (result || {}) as Partial<TokuiImageJob>;
+        setCurrentImageJob(latestJob.job_bid ? (latestJob as TokuiImageJob) : null);
+        setGeneratingImage(isImageJobRunning(latestJob as TokuiImageJob));
+        generatingImageRef.current = isImageJobRunning(
+          latestJob as TokuiImageJob,
+        );
+      })
+      .catch(() => {
+        if (mounted) setCurrentImageJob(null);
+      });
     return () => {
       mounted = false;
     };
   }, [shifuBid, outlineBid]);
+
+  useEffect(() => {
+    if (!shifuBid || !outlineBid || !currentImageJob?.job_bid) return;
+    if (!isImageJobRunning(currentImageJob)) return;
+    let mounted = true;
+    const poll = window.setInterval(() => {
+      void api
+        .getTokuiImageJob({
+          shifu_bid: shifuBid,
+          outline_bid: outlineBid,
+          job_bid: currentImageJob.job_bid,
+        })
+        .then(result => {
+          if (!mounted) return;
+          const nextJob = result as TokuiImageJob;
+          setCurrentImageJob(nextJob);
+          const stillRunning = isImageJobRunning(nextJob);
+          setGeneratingImage(stillRunning);
+          generatingImageRef.current = stillRunning;
+          if (!stillRunning) {
+            window.clearInterval(poll);
+          }
+        })
+        .catch(() => {
+          if (!mounted) return;
+          setGeneratingImage(false);
+          generatingImageRef.current = false;
+          window.clearInterval(poll);
+        });
+    }, 2500);
+    return () => {
+      mounted = false;
+      window.clearInterval(poll);
+    };
+  }, [currentImageJob, outlineBid, shifuBid]);
 
   const buildPayload = () => {
     const generationOptions = {
@@ -302,38 +392,65 @@ export default function TokuiTemplatePanel({
     }
   };
 
-  const generateImageMediaRef = async () => {
-    if (!shifuBid || !outlineBid || !imagePrompt.trim()) return;
+  const generateImageMediaRef = async (retryOfJobBid = '') => {
+    const prompt = imagePrompt.trim() || currentImageJob?.teacher_prompt || '';
+    if (!shifuBid || !outlineBid || !prompt.trim()) return;
     if (generatingImageRef.current) return;
     generatingImageRef.current = true;
     setGeneratingImage(true);
     try {
-      const result = (await api.generateTokuiImage({
+      const result = (await api.createTokuiImageJob({
         shifu_bid: shifuBid,
         outline_bid: outlineBid,
-        prompt: imagePrompt.trim(),
-        title: template.concept || imagePrompt.trim(),
-      })) as { media_ref?: unknown };
-      const normalized = normalizeMediaRefs([result.media_ref]);
-      if (!normalized.length) {
-        throw new Error('Invalid generated media ref');
-      }
-      setTemplate(prev => ({
-        ...prev,
-        media_refs: [...normalizeMediaRefs(prev.media_refs), normalized[0]],
-      }));
-      setImagePrompt('');
+        teacher_prompt: prompt,
+        title: template.concept || prompt,
+        retry_of_job_bid: retryOfJobBid,
+      })) as TokuiImageJob;
+      setCurrentImageJob(result);
       toast({
-        title: t('creationArea.tokui.imageGenerateSuccess'),
+        title: t('creationArea.tokui.imageJobQueued'),
       });
     } catch {
+      generatingImageRef.current = false;
+      setGeneratingImage(false);
       toast({
         title: t('creationArea.tokui.imageGenerateFailed'),
         variant: 'destructive',
       });
+    }
+  };
+
+  const selectImageCandidate = async (candidateBid: string) => {
+    if (!shifuBid || !outlineBid || !currentImageJob?.job_bid) return;
+    setSelectingCandidateBid(candidateBid);
+    try {
+      const result = (await api.selectTokuiImageCandidate({
+        shifu_bid: shifuBid,
+        outline_bid: outlineBid,
+        job_bid: currentImageJob.job_bid,
+        candidate_bid: candidateBid,
+      })) as {
+        job?: TokuiImageJob;
+        template?: TokuiTemplate;
+      };
+      if (result.template) {
+        setTemplate({
+          ...result.template,
+          media_refs: normalizeMediaRefs(result.template.media_refs),
+        });
+      }
+      if (result.job) {
+        setCurrentImageJob(result.job);
+      }
+      setImagePrompt('');
+      toast({ title: t('creationArea.tokui.imageSelectSuccess') });
+    } catch {
+      toast({
+        title: t('creationArea.tokui.imageSelectFailed'),
+        variant: 'destructive',
+      });
     } finally {
-      generatingImageRef.current = false;
-      setGeneratingImage(false);
+      setSelectingCandidateBid('');
     }
   };
 
@@ -578,7 +695,7 @@ export default function TokuiTemplatePanel({
                 variant='secondary'
                 className='mt-2'
                 disabled={disabled || generatingImage || !imagePrompt.trim()}
-                onClick={generateImageMediaRef}
+                onClick={() => void generateImageMediaRef()}
               >
                 {generatingImage ? (
                   <Loader2 className='mr-2 h-4 w-4 animate-spin' />
@@ -587,6 +704,120 @@ export default function TokuiTemplatePanel({
                 )}
                 {t('creationArea.tokui.generateImage')}
               </Button>
+              {currentImageJob?.job_bid ? (
+                <div className='mt-3 rounded-md border border-slate-200 bg-slate-50 p-3'>
+                  <div className='flex flex-wrap items-center justify-between gap-2'>
+                    <div>
+                      <div className='text-xs font-semibold text-slate-800'>
+                        {t(
+                          `creationArea.tokui.imageJobStatus.${currentImageJob.status}`,
+                        )}
+                      </div>
+                      {currentImageJob.optimized_prompt ? (
+                        <div className='mt-1 line-clamp-2 text-xs text-slate-500'>
+                          {currentImageJob.optimized_prompt}
+                        </div>
+                      ) : null}
+                      {currentImageJob.status === 'failed' ? (
+                        <div className='mt-1 text-xs text-red-600'>
+                          {currentImageJob.prompt_optimization_error ||
+                            currentImageJob.error_message ||
+                            t('creationArea.tokui.imageJobFailedHint')}
+                        </div>
+                      ) : null}
+                    </div>
+                    {currentImageJob.status === 'failed' ? (
+                      <Button
+                        type='button'
+                        size='sm'
+                        variant='outline'
+                        disabled={disabled || generatingImage}
+                        onClick={() =>
+                          void generateImageMediaRef(currentImageJob.job_bid)
+                        }
+                      >
+                        <RefreshCw className='mr-2 h-4 w-4' />
+                        {t('retry', { ns: 'common.core' })}
+                      </Button>
+                    ) : null}
+                  </div>
+                  {currentImageJob.candidates?.length ? (
+                    <div className='mt-3 grid gap-2 sm:grid-cols-3'>
+                      {currentImageJob.candidates.map(candidate => (
+                        <div
+                          key={candidate.candidate_bid}
+                          className='overflow-hidden rounded-md border border-slate-200 bg-white'
+                        >
+                          <div className='aspect-square bg-slate-100'>
+                            {candidate.status === 'succeeded' &&
+                            candidate.url ? (
+                              <div
+                                aria-label={
+                                  candidate.title ||
+                                  t('creationArea.tokui.imageCandidateAlt')
+                                }
+                                className='h-full w-full bg-cover bg-center'
+                                role='img'
+                                style={{
+                                  backgroundImage: `url(${candidate.url})`,
+                                }}
+                              />
+                            ) : (
+                              <div className='flex h-full items-center justify-center px-2 text-center text-xs text-slate-500'>
+                                {candidate.status === 'failed'
+                                  ? candidate.error_message ||
+                                    t('creationArea.tokui.imageCandidateFailed')
+                                  : t(
+                                      `creationArea.tokui.imageCandidateStatus.${candidate.status}`,
+                                    )}
+                              </div>
+                            )}
+                          </div>
+                          <div className='space-y-2 p-2'>
+                            <div className='truncate text-xs font-medium text-slate-700'>
+                              {candidate.title ||
+                                `${t('creationArea.tokui.imageCandidate')} ${
+                                  candidate.candidate_index + 1
+                                }`}
+                            </div>
+                            <Button
+                              type='button'
+                              size='sm'
+                              variant={
+                                candidate.selected ? 'secondary' : 'outline'
+                              }
+                              className='w-full'
+                              disabled={
+                                disabled ||
+                                candidate.status !== 'succeeded' ||
+                                Boolean(selectingCandidateBid) ||
+                                Boolean(candidate.selected)
+                              }
+                              onClick={() =>
+                                void selectImageCandidate(
+                                  candidate.candidate_bid,
+                                )
+                              }
+                            >
+                              {selectingCandidateBid ===
+                              candidate.candidate_bid ? (
+                                <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                              ) : candidate.selected ? (
+                                <Check className='mr-2 h-4 w-4' />
+                              ) : (
+                                <Plus className='mr-2 h-4 w-4' />
+                              )}
+                              {candidate.selected
+                                ? t('creationArea.tokui.imageCandidateSelected')
+                                : t('creationArea.tokui.imageCandidateSelect')}
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
             {normalizeMediaRefs(template.media_refs).length ? (
               <div className='mt-3 grid gap-2 sm:grid-cols-2'>

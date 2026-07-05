@@ -2,6 +2,7 @@ import React from 'react';
 import {
   BriefcaseIcon,
   DocumentIcon,
+  PhotoIcon,
   PresentationChartLineIcon,
   ShoppingCartIcon,
   UserPlusIcon,
@@ -87,6 +88,12 @@ export const buildAdminMenuItems = ({
           id: 'operations-credit-notification',
           label: t('common.core.creditNotificationManagement'),
           href: '/admin/operations/credit-notifications',
+        },
+        {
+          id: 'operations-tokui-image',
+          label: t('common.core.tokuiImageManagement'),
+          href: '/admin/operations/tokui-image',
+          icon: <PhotoIcon className='w-4 h-4' />,
         },
         {
           id: 'operations-voice-clone',

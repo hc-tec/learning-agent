@@ -98,6 +98,10 @@ from flaskr.service.shifu.admin_dtos import (
     AdminOperationUserCreditGrantRequestDTO,
     AdminOperationUserPackageGrantRequestDTO,
 )
+from flaskr.service.tokui.image_jobs import (
+    get_operator_tokui_image_config,
+    update_operator_tokui_image_config,
+)
 
 
 MAX_CONTACT_LENGTH = 320
@@ -297,6 +301,37 @@ def register_admin_operations_routes(
     app: Flask, *, path_prefix: str = "/api/shifu"
 ) -> None:
     """Register operator admin operation routes."""
+
+    @app.route(path_prefix + "/admin/operations/tokui-image/config", methods=["GET"])
+    def admin_operations_tokui_image_config():
+        """
+        Operator TokUI image generation config
+        ---
+        tags:
+            - Shifu
+        """
+        _require_operator()
+        return make_common_response(get_operator_tokui_image_config())
+
+    @app.route(path_prefix + "/admin/operations/tokui-image/config", methods=["POST"])
+    def admin_operations_update_tokui_image_config():
+        """
+        Update operator TokUI image generation config
+        ---
+        tags:
+            - Shifu
+        """
+        _require_operator()
+        payload = request.get_json(silent=True) or {}
+        if not isinstance(payload, dict):
+            raise_param_error("payload")
+        return make_common_response(
+            update_operator_tokui_image_config(
+                app,
+                str(getattr(request.user, "user_id", "") or ""),
+                payload,
+            )
+        )
 
     @app.route(path_prefix + "/admin/operations/courses", methods=["GET"])
     def admin_operations_courses():

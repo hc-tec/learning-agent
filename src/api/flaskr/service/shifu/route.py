@@ -139,6 +139,12 @@ from flaskr.service.shifu.shifu_tokui_funcs import (
     validate_tokui_preview,
 )
 from flaskr.service.tokui.image_generation import generate_tokui_image_media_ref
+from flaskr.service.tokui.image_jobs import (
+    create_tokui_image_generation_job,
+    get_latest_tokui_image_generation_job,
+    get_tokui_image_generation_job,
+    select_tokui_image_candidate,
+)
 from flaskr.service.shifu.shifu_history_manager import get_shifu_draft_meta
 from flaskr.service.shifu.permissions import (
     _auth_types_to_permissions,
@@ -1742,6 +1748,102 @@ def register_shifu_routes(app: Flask, path_prefix="/api/shifu"):
                 outline_bid=outline_bid,
                 title=title if isinstance(title, str) else "",
                 size=size if isinstance(size, str) else "",
+            )
+        )
+
+    @app.route(
+        path_prefix
+        + "/shifus/<shifu_bid>/outlines/<outline_bid>/tokui-template/image-jobs",
+        methods=["POST"],
+    )
+    @ShifuTokenValidation(ShifuPermission.EDIT)
+    @with_shifu_context()
+    def create_tokui_template_image_job_api(shifu_bid: str, outline_bid: str):
+        """
+        create async tokui teacher image generation job
+        ---
+        tags:
+            - shifu
+        """
+        user_id = request.user.user_id
+        payload = request.get_json(silent=True) or {}
+        return make_common_response(
+            create_tokui_image_generation_job(
+                app,
+                user_bid=user_id,
+                shifu_bid=shifu_bid,
+                outline_bid=outline_bid,
+                payload=payload,
+            )
+        )
+
+    @app.route(
+        path_prefix
+        + "/shifus/<shifu_bid>/outlines/<outline_bid>/tokui-template/image-jobs/latest",
+        methods=["GET"],
+    )
+    @ShifuTokenValidation(ShifuPermission.EDIT)
+    @with_shifu_context()
+    def get_latest_tokui_template_image_job_api(shifu_bid: str, outline_bid: str):
+        """
+        get latest async tokui teacher image generation job
+        ---
+        tags:
+            - shifu
+        """
+        return make_common_response(
+            get_latest_tokui_image_generation_job(shifu_bid, outline_bid)
+        )
+
+    @app.route(
+        path_prefix
+        + "/shifus/<shifu_bid>/outlines/<outline_bid>/tokui-template/image-jobs/<job_bid>",
+        methods=["GET"],
+    )
+    @ShifuTokenValidation(ShifuPermission.EDIT)
+    @with_shifu_context()
+    def get_tokui_template_image_job_api(
+        shifu_bid: str, outline_bid: str, job_bid: str
+    ):
+        """
+        get async tokui teacher image generation job
+        ---
+        tags:
+            - shifu
+        """
+        return make_common_response(
+            get_tokui_image_generation_job(shifu_bid, outline_bid, job_bid)
+        )
+
+    @app.route(
+        path_prefix
+        + "/shifus/<shifu_bid>/outlines/<outline_bid>/tokui-template/image-jobs/<job_bid>/select",
+        methods=["POST"],
+    )
+    @ShifuTokenValidation(ShifuPermission.EDIT)
+    @with_shifu_context()
+    def select_tokui_template_image_job_candidate_api(
+        shifu_bid: str, outline_bid: str, job_bid: str
+    ):
+        """
+        select async tokui teacher image generation candidate
+        ---
+        tags:
+            - shifu
+        """
+        user_id = request.user.user_id
+        payload = request.get_json(silent=True) or {}
+        candidate_bid = payload.get("candidate_bid")
+        if not isinstance(candidate_bid, str) or not candidate_bid.strip():
+            raise_param_error("candidate_bid")
+        return make_common_response(
+            select_tokui_image_candidate(
+                app,
+                user_bid=user_id,
+                shifu_bid=shifu_bid,
+                outline_bid=outline_bid,
+                job_bid=job_bid,
+                candidate_bid=candidate_bid.strip(),
             )
         )
 

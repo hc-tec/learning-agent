@@ -94,6 +94,14 @@ const api = {
     'POST /shifu/shifus/{shifu_bid}/outlines/{outline_bid}/tokui-template/guidance',
   generateTokuiImage:
     'POST /shifu/shifus/{shifu_bid}/outlines/{outline_bid}/tokui-template/image',
+  createTokuiImageJob:
+    'POST /shifu/shifus/{shifu_bid}/outlines/{outline_bid}/tokui-template/image-jobs',
+  getLatestTokuiImageJob:
+    'GET /shifu/shifus/{shifu_bid}/outlines/{outline_bid}/tokui-template/image-jobs/latest',
+  getTokuiImageJob:
+    'GET /shifu/shifus/{shifu_bid}/outlines/{outline_bid}/tokui-template/image-jobs/{job_bid}',
+  selectTokuiImageCandidate:
+    'POST /shifu/shifus/{shifu_bid}/outlines/{outline_bid}/tokui-template/image-jobs/{job_bid}/select',
   validateTokui: 'POST /shifu/shifus/{shifu_bid}/tokui/validate',
   // outline api end
 
@@ -231,6 +239,10 @@ const api = {
     'GET /shifu/admin/operations/profile-onboarding',
   updateAdminOperationProfileOnboardingConfig:
     'POST /shifu/admin/operations/profile-onboarding',
+  getAdminOperationTokuiImageConfig:
+    'GET /shifu/admin/operations/tokui-image/config',
+  updateAdminOperationTokuiImageConfig:
+    'POST /shifu/admin/operations/tokui-image/config',
   getAdminOperationReferrals: 'GET /shifu/admin/operations/referrals',
   getAdminOperationReferralsOverview:
     'GET /shifu/admin/operations/referrals/overview',
