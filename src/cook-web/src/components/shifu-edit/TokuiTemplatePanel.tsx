@@ -742,11 +742,15 @@ export default function TokuiTemplatePanel({
                     ) : null}
                   </div>
                   {currentImageJob.candidates?.length ? (
-                    <div className='mt-3 grid gap-2 sm:grid-cols-3'>
+                    <div
+                      className='mt-3 grid gap-2 sm:grid-cols-3'
+                      data-testid='tokui-image-candidate-grid'
+                    >
                       {currentImageJob.candidates.map(candidate => (
                         <div
                           key={candidate.candidate_bid}
                           className='overflow-hidden rounded-md border border-slate-200 bg-white'
+                          data-testid='tokui-image-candidate-card'
                         >
                           <div className='aspect-square bg-slate-100'>
                             {candidate.status === 'succeeded' &&
@@ -820,7 +824,10 @@ export default function TokuiTemplatePanel({
               ) : null}
             </div>
             {normalizeMediaRefs(template.media_refs).length ? (
-              <div className='mt-3 grid gap-2 sm:grid-cols-2'>
+              <div
+                className='mt-3 grid gap-2 sm:grid-cols-2'
+                data-testid='tokui-selected-media-refs'
+              >
                 {normalizeMediaRefs(template.media_refs).map(
                   (mediaRef, index) => (
                     <div

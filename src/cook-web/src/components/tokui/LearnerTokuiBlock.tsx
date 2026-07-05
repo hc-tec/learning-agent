@@ -152,6 +152,7 @@ export default function LearnerTokuiBlock({
 
   return (
     <section
+      data-testid='learner-tokui-block'
       className={className}
       style={style}
     >

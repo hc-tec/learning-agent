@@ -109,6 +109,7 @@ export default function TokuiRenderer({
   return (
     <div
       ref={rootRef}
+      data-testid='tokui-renderer-root'
       className={className}
       onSubmit={event => {
         event.preventDefault();

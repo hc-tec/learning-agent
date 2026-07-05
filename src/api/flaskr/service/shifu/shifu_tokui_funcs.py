@@ -49,6 +49,229 @@ TOKUI_DEFAULT_CONTEXT_POLICY = {
     ]
 }
 
+TOKUI_E2E_CONTROLLED_MODEL = "tokui-e2e-controlled"
+
+
+def _is_e2e_controlled_tokui(template_payload: dict[str, Any]) -> bool:
+    generation_options = template_payload.get("generation_options") or {}
+    if not isinstance(generation_options, dict):
+        return False
+    return (
+        generation_options.get("e2e_controlled_llm") is True
+        and str(generation_options.get("model") or "").strip()
+        == TOKUI_E2E_CONTROLLED_MODEL
+    )
+
+
+def _tokui_attr(value: Any) -> str:
+    return (
+        str(value or "")
+        .replace("\\", "\\\\")
+        .replace('"', "'")
+        .replace("[", "(")
+        .replace("]", ")")
+        .replace("\r", " ")
+        .replace("\n", " ")
+    )
+
+
+def _controlled_media_urls(context_payload: dict[str, Any]) -> list[str]:
+    media_refs = context_payload.get("teacher_media_refs") or []
+    if not isinstance(media_refs, list):
+        return []
+    urls: list[str] = []
+    for item in media_refs:
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url") or item.get("src") or "").strip()
+        if url and url not in urls:
+            urls.append(url)
+    return urls
+
+
+def _controlled_response_value(
+    responses: list[dict[str, Any]], field_id: str, default: str = ""
+) -> str:
+    for response in responses:
+        if not isinstance(response, dict):
+            continue
+        if str(response.get("field_id") or "") != field_id:
+            continue
+        value = response.get("value")
+        if isinstance(value, dict):
+            return str(value.get("value") or value.get("text") or default)
+        return str(value if value is not None else default)
+    return default
+
+
+def _controlled_image_block(urls: list[str]) -> str:
+    if not urls:
+        return ""
+    images = "".join(
+        f'[img s:"{_tokui_attr(url)}" tt:"E2E teaching image {index + 1}"]'
+        for index, url in enumerate(urls[:2])
+    )
+    return f"[imgs]{images}[/imgs]"
+
+
+def _controlled_template_marker(template_payload: dict[str, Any]) -> str:
+    source = (
+        f"{template_payload.get('teacher_intent') or ''}\n"
+        f"{template_payload.get('prompt_template') or ''}"
+    )
+    if "E2E_VERSION_2" in source:
+        return '[p E2E_TEMPLATE_MARKER:E2E_VERSION_2]'
+    if "E2E_VERSION_1" in source:
+        return '[p E2E_TEMPLATE_MARKER:E2E_VERSION_1]'
+    return ""
+
+
+def _build_e2e_controlled_tokui_generation(
+    *,
+    template_payload: dict[str, Any],
+    context_payload: dict[str, Any],
+    generation_name: str,
+) -> dict[str, Any]:
+    responses = context_payload.get("tokui_responses") or []
+    if not isinstance(responses, list):
+        responses = []
+    urls = _controlled_media_urls(context_payload)
+    image_block = _controlled_image_block(urls)
+    template_marker = _controlled_template_marker(template_payload)
+    prior = _controlled_response_value(responses, "prior_experience", "none")
+    explanation = _controlled_response_value(
+        responses, "concept_explanation", "missing explanation"
+    )
+    confidence = _controlled_response_value(responses, "confidence_score", "0")
+    refinement = _controlled_response_value(
+        responses, "refinement_plan", "missing refinement"
+    )
+
+    if any(
+        str(item.get("field_id") or "") == "refinement_plan"
+        for item in responses
+        if isinstance(item, dict)
+    ):
+        dsl = (
+            '[card tt:"E2E stage 3 - targeted feedback"]'
+            f"{template_marker}"
+            f"{image_block}"
+            f'[p The learner first chose "{_tokui_attr(prior)}", explained '
+            f'"{_tokui_attr(explanation)}", rated confidence as '
+            f'"{_tokui_attr(confidence)}", then refined with '
+            f'"{_tokui_attr(refinement)}".]'
+            "[p E2E_ASSERT_ROUND_THREE sees both prior rounds and now gives "
+            "answer-dependent feedback instead of asking the same checkpoint.]"
+            "[/card]"
+        )
+        return {"dsl": dsl, "interaction_schema": [], "media_refs": []}
+
+    if any(
+        str(item.get("field_id") or "") == "concept_explanation"
+        for item in responses
+        if isinstance(item, dict)
+    ):
+        dsl = (
+            '[card tt:"E2E stage 2 - follow-up checkpoint"]'
+            f"{template_marker}"
+            f"{image_block}"
+            f'[p E2E_ASSERT_ROUND_TWO uses prior_experience="{_tokui_attr(prior)}" '
+            f'and concept_explanation="{_tokui_attr(explanation)}".]'
+            "[p Now ask for a repair plan before continuing.]"
+            "[form]"
+            '[textarea n:refinement_plan l:"Repair plan"]Describe the next teaching move[/textarea]'
+            '[btn act:submit tx:"Continue"]'
+            "[/form]"
+            "[/card]"
+        )
+        return {
+            "dsl": dsl,
+            "interaction_schema": [
+                {
+                    "field_id": "refinement_plan",
+                    "field_type": "text",
+                    "label": "Repair plan",
+                    "required": True,
+                    "semantic_role": "follow_up_checkpoint",
+                    "value_shape": "string",
+                    "blocking": True,
+                    "continue_on_submit": True,
+                    "continuation_hint": "Use the first and second round answers.",
+                }
+            ],
+            "media_refs": [],
+        }
+
+    dsl = (
+        '[card tt:"E2E stage 1 - multi-input checkpoint"]'
+        f"{template_marker}"
+        f"{image_block}"
+        "[p E2E_ASSERT_ROUND_ONE introduces the concept with two teaching images, "
+        "then stops at a blocking checkpoint.]"
+        "[form]"
+        '[select n:prior_experience l:"Prior experience" opt:"new,worked_with_it,expert"]'
+        '[textarea n:concept_explanation l:"Concept explanation"]Explain the pressure path[/textarea]'
+        '[input n:confidence_score l:"Confidence score" type:number ph:"1-5"]'
+        '[btn act:submit tx:"Submit"]'
+        "[/form]"
+        "[/card]"
+    )
+    return {
+        "dsl": dsl,
+        "interaction_schema": [
+            {
+                "field_id": "prior_experience",
+                "field_type": "choice",
+                "label": "Prior experience",
+                "required": True,
+                "semantic_role": "learner_background",
+                "value_shape": "string",
+                "blocking": False,
+                "continue_on_submit": False,
+                "continuation_hint": "",
+            },
+            {
+                "field_id": "concept_explanation",
+                "field_type": "text",
+                "label": "Concept explanation",
+                "required": True,
+                "semantic_role": "check_understanding",
+                "value_shape": "string",
+                "blocking": True,
+                "continue_on_submit": True,
+                "continuation_hint": "Use this answer to generate the follow-up.",
+            },
+            {
+                "field_id": "confidence_score",
+                "field_type": "number",
+                "label": "Confidence score",
+                "required": True,
+                "semantic_role": "confidence",
+                "value_shape": "number",
+                "blocking": False,
+                "continue_on_submit": False,
+                "continuation_hint": "",
+            },
+        ],
+        "media_refs": [],
+    }
+
+
+def _build_e2e_controlled_guidance() -> str:
+    return "\n".join(
+        [
+            "E2E controlled teaching guide: teach in three stages.",
+            "Stage 1: compare at least two provided media resources and ask a",
+            "multi-field checkpoint before continuing.",
+            "Stage 2: use the learner's first answer verbatim, diagnose the gap,",
+            "and ask one blocking follow-up for a repair plan.",
+            "Stage 3: use answers from both previous rounds and give targeted",
+            "feedback. Never invent media URLs; only use teacher_media_refs.",
+            "Feedback rule: incomplete answers should be acknowledged honestly",
+            "and repaired with a concrete next explanation.",
+        ]
+    )
+
 
 def _as_json_value(value: Any, default: Any) -> Any:
     if value is None:
@@ -366,6 +589,13 @@ def _invoke_tokui_llm(
     validation_errors: list[dict[str, Any]] | None = None,
     generation_name: str,
 ) -> dict[str, Any]:
+    if _is_e2e_controlled_tokui(template_payload):
+        return _build_e2e_controlled_tokui_generation(
+            template_payload=template_payload,
+            context_payload=context_payload,
+            generation_name=generation_name,
+        )
+
     model, temperature = _resolve_generation_settings(template_payload, outline)
     prompt = _build_generation_prompt(
         template_payload=template_payload,
@@ -424,6 +654,9 @@ def _invoke_guidance_llm(
     template_payload: dict[str, Any],
     context_payload: dict[str, Any],
 ) -> str:
+    if _is_e2e_controlled_tokui(template_payload):
+        return _build_e2e_controlled_guidance()
+
     model, temperature = _resolve_generation_settings(template_payload, outline)
     prompt = _build_guidance_prompt(
         template_payload=template_payload,
