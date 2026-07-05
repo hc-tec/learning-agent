@@ -17,7 +17,7 @@ from flaskr.dao import db
 from flaskr.service.check_risk.funcs import check_text_with_risk_control
 from flaskr.service.common import raise_error, raise_param_error
 from flaskr.service.config import get_config
-from flaskr.service.config.funcs import add_config
+from flaskr.service.config.funcs import add_config, get_stored_config
 from flaskr.service.metering import UsageContext
 from flaskr.service.metering.consts import BILL_USAGE_SCENE_DEBUG
 from flaskr.service.shifu.models import (
@@ -34,7 +34,6 @@ from flaskr.service.tokui.common import (
 from flaskr.service.tokui.image_generation import (
     TokuiImageProviderConfig,
     _store_generated_image,
-    get_tokui_image_provider_config,
     request_generated_image,
 )
 from flaskr.util import generate_id
@@ -133,27 +132,51 @@ def _coerce_float(value: Any, default: float) -> float:
         return default
 
 
+def _get_tokui_image_config(key: str, default: Any = None) -> Any:
+    value = get_stored_config(key, None)
+    if value not in (None, ""):
+        return value
+    return get_config(key, default)
+
+
 def get_tokui_image_job_config() -> TokuiImageJobConfig:
-    provider = get_tokui_image_provider_config()
+    provider = TokuiImageProviderConfig(
+        base_url=str(
+            _get_tokui_image_config("TOKUI_IMAGE_API_BASE_URL", "") or ""
+        ).strip(),
+        api_key=str(_get_tokui_image_config("TOKUI_IMAGE_API_KEY", "") or "").strip(),
+        model=str(
+            _get_tokui_image_config("TOKUI_IMAGE_MODEL", "gpt-image-2") or ""
+        ).strip(),
+        timeout_seconds=_coerce_positive_int(
+            _get_tokui_image_config("TOKUI_IMAGE_TIMEOUT_SECONDS", 120),
+            120,
+            minimum=1,
+            maximum=900,
+        ),
+        default_size=str(
+            _get_tokui_image_config("TOKUI_IMAGE_SIZE", "1024x1024") or "1024x1024"
+        ).strip(),
+    )
     candidate_count = _coerce_positive_int(
-        get_config("TOKUI_IMAGE_DEFAULT_CANDIDATE_COUNT", 3),
+        _get_tokui_image_config("TOKUI_IMAGE_DEFAULT_CANDIDATE_COUNT", 3),
         3,
         minimum=1,
         maximum=6,
     )
     optimizer_enabled = _coerce_bool(
-        get_config("TOKUI_IMAGE_PROMPT_OPTIMIZER_ENABLED", True),
+        _get_tokui_image_config("TOKUI_IMAGE_PROMPT_OPTIMIZER_ENABLED", True),
         True,
     )
     optimizer_model = str(
-        get_config("TOKUI_IMAGE_PROMPT_OPTIMIZER_MODEL", "") or ""
+        _get_tokui_image_config("TOKUI_IMAGE_PROMPT_OPTIMIZER_MODEL", "") or ""
     ).strip()
     optimizer_temperature = _coerce_float(
-        get_config("TOKUI_IMAGE_PROMPT_OPTIMIZER_TEMPERATURE", 0.2),
+        _get_tokui_image_config("TOKUI_IMAGE_PROMPT_OPTIMIZER_TEMPERATURE", 0.2),
         0.2,
     )
     optimizer_prompt = str(
-        get_config(
+        _get_tokui_image_config(
             "TOKUI_IMAGE_PROMPT_OPTIMIZER_SYSTEM_PROMPT",
             DEFAULT_PROMPT_OPTIMIZER_SYSTEM_PROMPT,
         )
@@ -172,35 +195,43 @@ def get_tokui_image_job_config() -> TokuiImageJobConfig:
 
 def get_operator_tokui_image_config() -> dict[str, Any]:
     return {
-        "api_base_url": str(get_config("TOKUI_IMAGE_API_BASE_URL", "") or ""),
-        "api_key_configured": bool(str(get_config("TOKUI_IMAGE_API_KEY", "") or "")),
-        "model": str(get_config("TOKUI_IMAGE_MODEL", "gpt-image-2") or ""),
+        "api_base_url": str(
+            _get_tokui_image_config("TOKUI_IMAGE_API_BASE_URL", "") or ""
+        ),
+        "api_key_configured": bool(
+            str(_get_tokui_image_config("TOKUI_IMAGE_API_KEY", "") or "")
+        ),
+        "model": str(
+            _get_tokui_image_config("TOKUI_IMAGE_MODEL", "gpt-image-2") or ""
+        ),
         "timeout_seconds": _coerce_positive_int(
-            get_config("TOKUI_IMAGE_TIMEOUT_SECONDS", 120),
+            _get_tokui_image_config("TOKUI_IMAGE_TIMEOUT_SECONDS", 120),
             120,
             minimum=1,
             maximum=900,
         ),
-        "size": str(get_config("TOKUI_IMAGE_SIZE", "1024x1024") or "1024x1024"),
+        "size": str(
+            _get_tokui_image_config("TOKUI_IMAGE_SIZE", "1024x1024") or "1024x1024"
+        ),
         "default_candidate_count": _coerce_positive_int(
-            get_config("TOKUI_IMAGE_DEFAULT_CANDIDATE_COUNT", 3),
+            _get_tokui_image_config("TOKUI_IMAGE_DEFAULT_CANDIDATE_COUNT", 3),
             3,
             minimum=1,
             maximum=6,
         ),
         "prompt_optimizer_enabled": _coerce_bool(
-            get_config("TOKUI_IMAGE_PROMPT_OPTIMIZER_ENABLED", True),
+            _get_tokui_image_config("TOKUI_IMAGE_PROMPT_OPTIMIZER_ENABLED", True),
             True,
         ),
         "prompt_optimizer_model": str(
-            get_config("TOKUI_IMAGE_PROMPT_OPTIMIZER_MODEL", "") or ""
+            _get_tokui_image_config("TOKUI_IMAGE_PROMPT_OPTIMIZER_MODEL", "") or ""
         ),
         "prompt_optimizer_temperature": _coerce_float(
-            get_config("TOKUI_IMAGE_PROMPT_OPTIMIZER_TEMPERATURE", 0.2),
+            _get_tokui_image_config("TOKUI_IMAGE_PROMPT_OPTIMIZER_TEMPERATURE", 0.2),
             0.2,
         ),
         "prompt_optimizer_system_prompt": str(
-            get_config(
+            _get_tokui_image_config(
                 "TOKUI_IMAGE_PROMPT_OPTIMIZER_SYSTEM_PROMPT",
                 DEFAULT_PROMPT_OPTIMIZER_SYSTEM_PROMPT,
             )
@@ -219,14 +250,21 @@ def update_operator_tokui_image_config(
             raw_value = str(payload.get(field) or "").strip()
             if not raw_value:
                 continue
-            add_config(app, key, raw_value, is_secret=True, updated_by=user_bid)
+            add_config(
+                app,
+                key,
+                raw_value,
+                is_secret=True,
+                updated_by=user_bid,
+                force=True,
+            )
             continue
         raw_value = payload.get(field)
         if isinstance(raw_value, bool):
             value = "true" if raw_value else "false"
         else:
             value = str(raw_value if raw_value is not None else "").strip()
-        add_config(app, key, value, is_secret=False, updated_by=user_bid)
+        add_config(app, key, value, is_secret=False, updated_by=user_bid, force=True)
     return get_operator_tokui_image_config()
 
 
@@ -521,7 +559,7 @@ def _generate_candidate(app: Flask, job_bid: str, candidate_bid: str) -> bool:
         db.session.commit()
         config = TokuiImageProviderConfig(
             base_url=job.provider_base_url,
-            api_key=str(get_config("TOKUI_IMAGE_API_KEY", "") or ""),
+            api_key=str(_get_tokui_image_config("TOKUI_IMAGE_API_KEY", "") or ""),
             model=job.provider_model,
             timeout_seconds=int(job.provider_timeout_seconds or 120),
             default_size=job.provider_size or "1024x1024",
@@ -598,7 +636,7 @@ def _process_job(app: Flask, job_bid: str) -> None:
         job.status = JOB_STATUS_GENERATING_IMAGES
         db.session.commit()
 
-        candidates: list[TokuiImageGenerationCandidate] = []
+        candidate_bids: list[str] = []
         for index in range(int(job.candidate_count or 1)):
             candidate = TokuiImageGenerationCandidate(
                 candidate_bid=generate_id(app),
@@ -609,14 +647,14 @@ def _process_job(app: Flask, job_bid: str) -> None:
                 description=job.final_provider_prompt,
             )
             db.session.add(candidate)
-            candidates.append(candidate)
+            candidate_bids.append(candidate.candidate_bid)
         db.session.commit()
 
     success_count = 0
-    with ThreadPoolExecutor(max_workers=max(1, min(len(candidates), 6))) as executor:
+    with ThreadPoolExecutor(max_workers=max(1, min(len(candidate_bids), 6))) as executor:
         futures = [
-            executor.submit(_generate_candidate, app, job_bid, candidate.candidate_bid)
-            for candidate in candidates
+            executor.submit(_generate_candidate, app, job_bid, candidate_bid)
+            for candidate_bid in candidate_bids
         ]
         for future in as_completed(futures):
             if future.result():
@@ -647,55 +685,56 @@ def select_tokui_image_candidate(
     job_bid: str,
     candidate_bid: str,
 ) -> dict[str, Any]:
-    job = _load_job(shifu_bid, outline_bid, job_bid)
-    candidate = (
+    with app.app_context():
+        job = _load_job(shifu_bid, outline_bid, job_bid)
+        candidate = (
+            TokuiImageGenerationCandidate.query.filter(
+                TokuiImageGenerationCandidate.candidate_bid == candidate_bid,
+                TokuiImageGenerationCandidate.job_bid == job.job_bid,
+                TokuiImageGenerationCandidate.deleted == 0,
+            )
+            .order_by(TokuiImageGenerationCandidate.id.desc())
+            .first()
+        )
+        if not candidate or candidate.status != CANDIDATE_STATUS_SUCCEEDED:
+            raise_param_error("candidate_bid")
+
+        media_ref = {
+            "resource_id": candidate.resource_id or "",
+            "url": candidate.resource_url or "",
+            "type": "image",
+            "title": candidate.title or "TokUI generated image",
+            "description": candidate.description or job.final_provider_prompt or "",
+        }
+        from flaskr.service.shifu.shifu_tokui_funcs import (
+            get_draft_tokui_template,
+            save_draft_tokui_template,
+        )
+
+        current_template = get_draft_tokui_template(app, shifu_bid, outline_bid)
+        media_refs = normalize_media_refs(current_template.get("media_refs") or [])
+        media_refs.append(media_ref)
+        payload = {
+            **current_template,
+            "media_refs": media_refs,
+        }
+        updated_template = save_draft_tokui_template(
+            app,
+            user_bid,
+            shifu_bid,
+            outline_bid,
+            payload,
+        )
         TokuiImageGenerationCandidate.query.filter(
-            TokuiImageGenerationCandidate.candidate_bid == candidate_bid,
             TokuiImageGenerationCandidate.job_bid == job.job_bid,
             TokuiImageGenerationCandidate.deleted == 0,
-        )
-        .order_by(TokuiImageGenerationCandidate.id.desc())
-        .first()
-    )
-    if not candidate or candidate.status != CANDIDATE_STATUS_SUCCEEDED:
-        raise_param_error("candidate_bid")
-
-    media_ref = {
-        "resource_id": candidate.resource_id or "",
-        "url": candidate.resource_url or "",
-        "type": "image",
-        "title": candidate.title or "TokUI generated image",
-        "description": candidate.description or job.final_provider_prompt or "",
-    }
-    from flaskr.service.shifu.shifu_tokui_funcs import (
-        get_draft_tokui_template,
-        save_draft_tokui_template,
-    )
-
-    current_template = get_draft_tokui_template(app, shifu_bid, outline_bid)
-    media_refs = normalize_media_refs(current_template.get("media_refs") or [])
-    media_refs.append(media_ref)
-    payload = {
-        **current_template,
-        "media_refs": media_refs,
-    }
-    updated_template = save_draft_tokui_template(
-        app,
-        user_bid,
-        shifu_bid,
-        outline_bid,
-        payload,
-    )
-    TokuiImageGenerationCandidate.query.filter(
-        TokuiImageGenerationCandidate.job_bid == job.job_bid,
-        TokuiImageGenerationCandidate.deleted == 0,
-    ).update({"selected": 0})
-    candidate.selected = 1
-    job.selected_candidate_bid = candidate.candidate_bid
-    job.status = JOB_STATUS_SELECTED
-    db.session.commit()
-    return {
-        "job": _serialize_job(job),
-        "media_ref": media_ref,
-        "template": updated_template,
-    }
+        ).update({"selected": 0})
+        candidate.selected = 1
+        job.selected_candidate_bid = candidate.candidate_bid
+        job.status = JOB_STATUS_SELECTED
+        db.session.commit()
+        return {
+            "job": _serialize_job(job),
+            "media_ref": media_ref,
+            "template": updated_template,
+        }

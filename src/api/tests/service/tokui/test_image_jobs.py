@@ -117,13 +117,39 @@ def test_operator_tokui_image_config_masks_api_key(monkeypatch):
     assert result["prompt_optimizer_enabled"] is True
 
 
+def test_operator_tokui_image_config_prefers_runtime_values(monkeypatch):
+    runtime_values = {
+        "TOKUI_IMAGE_API_BASE_URL": "http://runtime-provider.test/v1",
+        "TOKUI_IMAGE_MODEL": "runtime-image-model",
+    }
+    env_values = {
+        "TOKUI_IMAGE_API_BASE_URL": "https://env-provider.test/v1",
+        "TOKUI_IMAGE_MODEL": "env-image-model",
+    }
+    monkeypatch.setattr(
+        image_jobs,
+        "get_stored_config",
+        lambda key, default=None: runtime_values.get(key, default),
+    )
+    monkeypatch.setattr(
+        image_jobs,
+        "get_config",
+        lambda key, default=None: env_values.get(key, default),
+    )
+
+    result = image_jobs.get_operator_tokui_image_config()
+
+    assert result["api_base_url"] == "http://runtime-provider.test/v1"
+    assert result["model"] == "runtime-image-model"
+
+
 def test_update_operator_tokui_image_config_keeps_blank_api_key(app, monkeypatch):
     calls = []
     monkeypatch.setattr(
         image_jobs,
         "add_config",
-        lambda app, key, value, is_secret=False, updated_by="system": calls.append(
-            (key, value, is_secret, updated_by)
+        lambda app, key, value, is_secret=False, updated_by="system", force=False: (
+            calls.append((key, value, is_secret, updated_by, force))
         ),
     )
     monkeypatch.setattr(
@@ -143,13 +169,14 @@ def test_update_operator_tokui_image_config_keeps_blank_api_key(app, monkeypatch
     )
 
     assert result == {"api_key_configured": True}
-    assert ("TOKUI_IMAGE_API_KEY", "", True, "operator-1") not in calls
-    assert ("TOKUI_IMAGE_MODEL", "gpt-image-2", False, "operator-1") in calls
+    assert ("TOKUI_IMAGE_API_KEY", "", True, "operator-1", True) not in calls
+    assert ("TOKUI_IMAGE_MODEL", "gpt-image-2", False, "operator-1", True) in calls
     assert (
         "TOKUI_IMAGE_PROMPT_OPTIMIZER_ENABLED",
         "true",
         False,
         "operator-1",
+        True,
     ) in calls
 
 
