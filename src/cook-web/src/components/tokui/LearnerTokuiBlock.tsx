@@ -120,11 +120,17 @@ export default function LearnerTokuiBlock({
               (field.blocking || field.continue_on_submit),
           );
         if (shouldContinue) {
-          setSaving(false);
           await loadArtifact(true);
           return;
         }
         toast({ title: t('module.chat.tokuiResponseSaved') });
+      } catch {
+        const message = t('module.chat.tokuiLoadFailed');
+        setError(message);
+        toast({
+          title: message,
+          variant: 'destructive',
+        });
       } finally {
         setSaving(false);
       }

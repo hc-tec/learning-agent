@@ -28,13 +28,49 @@ type TokuiRendererProps = {
   onSubmitResponses?: (responses: TokuiResponseValue[]) => void;
 };
 
+const TOKUI_TEXT_PLACEHOLDERS = new Set([
+  '请输入答案',
+  '请输入你的答案',
+  'Enter your answer',
+  'Please enter your answer',
+]);
+
+const cssAttributeEscape = (value: string) => value.replace(/["\\]/g, '\\$&');
+
+const isFormField = (
+  element: Element | null,
+): element is HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement =>
+  element instanceof HTMLInputElement ||
+  element instanceof HTMLTextAreaElement ||
+  element instanceof HTMLSelectElement;
+
+const normalizeRenderedFields = (root: HTMLDivElement) => {
+  root.querySelectorAll<HTMLTextAreaElement>('textarea').forEach(textarea => {
+    const value = textarea.value.trim();
+    if (!textarea.placeholder && TOKUI_TEXT_PLACEHOLDERS.has(value)) {
+      textarea.placeholder = value;
+      textarea.value = '';
+      textarea.defaultValue = '';
+      textarea.textContent = '';
+    }
+  });
+};
+
 const readFieldValue = (root: HTMLDivElement, field: TokuiInteractionField) => {
-  const selector = `[name="${CSS.escape(field.field_id)}"], #${CSS.escape(field.field_id)}`;
+  const selector = `[name="${cssAttributeEscape(field.field_id)}"]`;
   const elements = Array.from(
     root.querySelectorAll<
       HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
     >(selector),
   );
+  const idElement = root.ownerDocument.getElementById(field.field_id);
+  if (
+    isFormField(idElement) &&
+    root.contains(idElement) &&
+    !elements.includes(idElement)
+  ) {
+    elements.push(idElement);
+  }
   if (!elements.length) return undefined;
   if (
     elements[0] instanceof HTMLInputElement &&
@@ -77,6 +113,7 @@ export default function TokuiRenderer({
       }
     }
     ui.render(dsl);
+    normalizeRenderedFields(root);
 
     return () => {
       try {
@@ -117,8 +154,14 @@ export default function TokuiRenderer({
       }}
       onClick={event => {
         const target = event.target as HTMLElement | null;
+        const trigger = target?.closest<HTMLElement>(
+          '[data-tokui-act="submit"], button[data-tokui-tag="btn"].tokui-btn',
+        );
         if (
-          target?.closest('button[type="submit"], [data-tokui-act="submit"]')
+          trigger &&
+          rootRef.current?.contains(trigger) &&
+          trigger.closest('form') &&
+          !(trigger instanceof HTMLButtonElement && trigger.type === 'submit')
         ) {
           submitResponses();
         }
