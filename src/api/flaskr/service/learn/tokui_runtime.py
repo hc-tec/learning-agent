@@ -111,6 +111,17 @@ def _template_to_generation_payload(template: PublishedTokuiTemplate) -> dict[st
     }
 
 
+def _response_to_dict(row: LearnTokuiResponse) -> dict[str, Any]:
+    return {
+        "tokui_response_bid": row.tokui_response_bid,
+        "tokui_artifact_bid": row.tokui_artifact_bid,
+        "field_id": row.field_id,
+        "field_type": row.field_type,
+        "field_label": row.field_label,
+        "value": json_loads(row.value_json, {}),
+    }
+
+
 def _load_existing_responses(
     user_bid: str, shifu_bid: str, outline_bid: str
 ) -> list[dict[str, Any]]:
@@ -125,15 +136,29 @@ def _load_existing_responses(
         .limit(50)
         .all()
     )
-    return [
-        {
-            "field_id": row.field_id,
-            "field_type": row.field_type,
-            "field_label": row.field_label,
-            "value": json_loads(row.value_json, {}),
-        }
-        for row in rows
-    ]
+    return [_response_to_dict(row) for row in rows]
+
+
+def _load_responses_by_artifact(
+    *, user_bid: str, artifact_bids: list[str]
+) -> dict[str, list[dict[str, Any]]]:
+    if not artifact_bids:
+        return {}
+    rows = (
+        LearnTokuiResponse.query.filter(
+            LearnTokuiResponse.user_bid == user_bid,
+            LearnTokuiResponse.tokui_artifact_bid.in_(artifact_bids),
+            LearnTokuiResponse.deleted == 0,
+        )
+        .order_by(LearnTokuiResponse.id.asc())
+        .all()
+    )
+    responses_by_artifact: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        responses_by_artifact.setdefault(row.tokui_artifact_bid, []).append(
+            _response_to_dict(row)
+        )
+    return responses_by_artifact
 
 
 def _build_learner_context(
@@ -171,7 +196,53 @@ def _build_learner_context(
     }
 
 
-def _artifact_to_dict(artifact: LearnTokuiArtifact) -> dict[str, Any]:
+def _continuation_contract_errors(
+    generated: dict[str, Any], context_payload: dict[str, Any]
+) -> list[dict[str, Any]]:
+    responses = context_payload.get("tokui_responses") or []
+    if not isinstance(responses, list) or not responses:
+        return []
+    answered_field_ids = {
+        str(response.get("field_id") or "").strip()
+        for response in responses
+        if isinstance(response, dict)
+    }
+    answered_field_ids.discard("")
+    if not answered_field_ids:
+        return []
+    interaction_schema = generated.get("interaction_schema") or []
+    if not isinstance(interaction_schema, list):
+        return []
+    repeated_field_ids = sorted(
+        {
+            str(field.get("field_id") or "").strip()
+            for field in interaction_schema
+            if isinstance(field, dict)
+            and str(field.get("field_id") or "").strip() in answered_field_ids
+        }
+    )
+    if not repeated_field_ids:
+        return []
+    return [
+        {
+            "message": (
+                "Continuation output repeated already answered learner fields. "
+                "Generate only the next feedback/continuation block and do not "
+                "ask the same checkpoint again."
+            ),
+            "code": "TokuiContinuationRepeatedAnsweredFields",
+            "field_ids": repeated_field_ids,
+        }
+    ]
+
+
+def _artifact_to_dict(
+    artifact: LearnTokuiArtifact,
+    responses_by_artifact: dict[str, list[dict[str, Any]]] | None = None,
+) -> dict[str, Any]:
+    submitted_responses = (
+        responses_by_artifact or {}
+    ).get(artifact.tokui_artifact_bid, [])
     return {
         "tokui_artifact_bid": artifact.tokui_artifact_bid,
         "published_template_bid": artifact.published_template_bid,
@@ -187,6 +258,8 @@ def _artifact_to_dict(artifact: LearnTokuiArtifact) -> dict[str, Any]:
         "validation_error": json_loads(artifact.validation_error, []),
         "parser_version": artifact.parser_version,
         "fallback_text": artifact.fallback_text,
+        "submitted_responses": submitted_responses,
+        "submitted": bool(submitted_responses),
     }
 
 
@@ -207,6 +280,57 @@ def _find_reusable_artifact(
         .order_by(LearnTokuiArtifact.id.desc())
         .first()
     )
+
+
+def _load_artifact_chain(
+    *,
+    user_bid: str,
+    progress_record_bid: str,
+    template_hash_value: str,
+    include_failed_artifact: LearnTokuiArtifact | None = None,
+) -> list[dict[str, Any]]:
+    artifacts = (
+        LearnTokuiArtifact.query.filter(
+            LearnTokuiArtifact.user_bid == user_bid,
+            LearnTokuiArtifact.progress_record_bid == progress_record_bid,
+            LearnTokuiArtifact.template_hash == template_hash_value,
+            LearnTokuiArtifact.deleted == 0,
+        )
+        .order_by(LearnTokuiArtifact.id.asc())
+        .all()
+    )
+    if include_failed_artifact and all(
+        item.tokui_artifact_bid != include_failed_artifact.tokui_artifact_bid
+        for item in artifacts
+    ):
+        artifacts.append(include_failed_artifact)
+    artifact_bids = [artifact.tokui_artifact_bid for artifact in artifacts]
+    responses_by_artifact = _load_responses_by_artifact(
+        user_bid=user_bid, artifact_bids=artifact_bids
+    )
+    return [
+        _artifact_to_dict(artifact, responses_by_artifact)
+        for artifact in artifacts
+        if artifact.validation_status == TOKUI_STATUS_VALIDATED
+        or artifact is include_failed_artifact
+    ]
+
+
+def _attach_artifact_chain(
+    result: dict[str, Any],
+    *,
+    user_bid: str,
+    progress_record_bid: str,
+    template_hash_value: str,
+    include_failed_artifact: LearnTokuiArtifact | None = None,
+) -> dict[str, Any]:
+    result["artifact_chain"] = _load_artifact_chain(
+        user_bid=user_bid,
+        progress_record_bid=progress_record_bid,
+        template_hash_value=template_hash_value,
+        include_failed_artifact=include_failed_artifact,
+    )
+    return result
 
 
 def get_or_generate_tokui_artifact(
@@ -235,7 +359,12 @@ def get_or_generate_tokui_artifact(
                 result = _artifact_to_dict(reusable)
                 result["enabled"] = True
                 result["reused"] = True
-                return result
+                return _attach_artifact_chain(
+                    result,
+                    user_bid=user_bid,
+                    progress_record_bid=progress_record.progress_record_bid,
+                    template_hash_value=template.template_hash,
+                )
 
         context_payload = _build_learner_context(
             user_bid=user_bid,
@@ -262,9 +391,13 @@ def get_or_generate_tokui_artifact(
             )
             validation = validate_tokui_dsl(app, generated["dsl"])
             parser_version = validation.parser_version
-            validation_ok = validation.ok
             validation_errors = [error.to_dict() for error in validation.errors]
-            if not validation.ok:
+            contract_errors = _continuation_contract_errors(
+                generated, context_payload
+            )
+            validation_errors.extend(contract_errors)
+            validation_ok = validation.ok and not contract_errors
+            if not validation_ok:
                 repair_attempted = True
                 generated = _invoke_tokui_llm(
                     app,
@@ -277,8 +410,12 @@ def get_or_generate_tokui_artifact(
                 )
                 validation = validate_tokui_dsl(app, generated["dsl"])
                 parser_version = validation.parser_version
-                validation_ok = validation.ok
                 validation_errors = [error.to_dict() for error in validation.errors]
+                contract_errors = _continuation_contract_errors(
+                    generated, context_payload
+                )
+                validation_errors.extend(contract_errors)
+                validation_ok = validation.ok and not contract_errors
         except Exception as exc:
             app.logger.exception("TokUI learner runtime generation failed")
             validation_errors = [
@@ -317,7 +454,15 @@ def get_or_generate_tokui_artifact(
         result["enabled"] = True
         result["reused"] = False
         result["repair_attempted"] = repair_attempted
-        return result
+        return _attach_artifact_chain(
+            result,
+            user_bid=user_bid,
+            progress_record_bid=progress_record.progress_record_bid,
+            template_hash_value=template.template_hash,
+            include_failed_artifact=artifact
+            if artifact.validation_status != TOKUI_STATUS_VALIDATED
+            else None,
+        )
 
 
 def save_tokui_responses(
@@ -391,17 +536,6 @@ def save_tokui_responses(
             db.session.add(row)
             saved += 1
         continue_required = bool(continue_fields)
-        if continue_required:
-            LearnTokuiArtifact.query.filter(
-                LearnTokuiArtifact.user_bid == user_bid,
-                LearnTokuiArtifact.progress_record_bid == artifact.progress_record_bid,
-                LearnTokuiArtifact.template_hash == artifact.template_hash,
-                LearnTokuiArtifact.deleted == 0,
-                LearnTokuiArtifact.validation_status == TOKUI_STATUS_VALIDATED,
-            ).update(
-                {"deleted": 1, "updated_at": now_utc()},
-                synchronize_session=False,
-            )
         db.session.commit()
         return {
             "saved": saved,

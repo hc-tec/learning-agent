@@ -25,6 +25,8 @@ type TokuiRendererProps = {
   interactionSchema?: TokuiInteractionField[];
   theme?: string;
   className?: string;
+  readOnly?: boolean;
+  submittedResponses?: TokuiResponseValue[];
   onSubmitResponses?: (responses: TokuiResponseValue[]) => void;
 };
 
@@ -34,6 +36,8 @@ const TOKUI_TEXT_PLACEHOLDERS = new Set([
   'Enter your answer',
   'Please enter your answer',
 ]);
+
+const EMPTY_SUBMITTED_RESPONSES: TokuiResponseValue[] = [];
 
 const cssAttributeEscape = (value: string) => value.replace(/["\\]/g, '\\$&');
 
@@ -56,14 +60,18 @@ const normalizeRenderedFields = (root: HTMLDivElement) => {
   });
 };
 
-const readFieldValue = (root: HTMLDivElement, field: TokuiInteractionField) => {
-  const selector = `[name="${cssAttributeEscape(field.field_id)}"]`;
+const findFieldElements = (
+  root: HTMLDivElement,
+  fieldId: string,
+): Array<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement> => {
+  if (!fieldId) return [];
+  const selector = `[name="${cssAttributeEscape(fieldId)}"]`;
   const elements = Array.from(
     root.querySelectorAll<
       HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
     >(selector),
   );
-  const idElement = root.ownerDocument.getElementById(field.field_id);
+  const idElement = root.ownerDocument.getElementById(fieldId);
   if (
     isFormField(idElement) &&
     root.contains(idElement) &&
@@ -71,6 +79,65 @@ const readFieldValue = (root: HTMLDivElement, field: TokuiInteractionField) => {
   ) {
     elements.push(idElement);
   }
+  return elements;
+};
+
+const valueToDisplayString = (value: unknown) => {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  return JSON.stringify(value);
+};
+
+const applySubmittedResponses = (
+  root: HTMLDivElement,
+  responses: TokuiResponseValue[] = [],
+) => {
+  responses.forEach(response => {
+    const elements = findFieldElements(root, response.field_id);
+    if (!elements.length) return;
+    const value = response.value;
+    if (elements[0] instanceof HTMLInputElement && elements[0].type === 'checkbox') {
+      const values = Array.isArray(value) ? value.map(String) : [];
+      elements.forEach(element => {
+        if (element instanceof HTMLInputElement) {
+          element.checked =
+            typeof value === 'boolean'
+              ? value
+              : values.includes(element.value || 'true');
+        }
+      });
+      return;
+    }
+    if (elements[0] instanceof HTMLInputElement && elements[0].type === 'radio') {
+      elements.forEach(element => {
+        if (element instanceof HTMLInputElement) {
+          element.checked = element.value === valueToDisplayString(value);
+        }
+      });
+      return;
+    }
+    elements[0].value = valueToDisplayString(value);
+  });
+};
+
+const makeReadOnly = (root: HTMLDivElement) => {
+  root
+    .querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input, textarea')
+    .forEach(element => {
+      element.readOnly = true;
+    });
+  root
+    .querySelectorAll<HTMLSelectElement | HTMLButtonElement>('select, button')
+    .forEach(element => {
+      element.disabled = true;
+    });
+};
+
+const readFieldValue = (root: HTMLDivElement, field: TokuiInteractionField) => {
+  const elements = findFieldElements(root, field.field_id);
   if (!elements.length) return undefined;
   if (
     elements[0] instanceof HTMLInputElement &&
@@ -95,6 +162,8 @@ export default function TokuiRenderer({
   interactionSchema = [],
   theme = 'default',
   className,
+  readOnly = false,
+  submittedResponses = EMPTY_SUBMITTED_RESPONSES,
   onSubmitResponses,
 }: TokuiRendererProps) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -114,6 +183,10 @@ export default function TokuiRenderer({
     }
     ui.render(dsl);
     normalizeRenderedFields(root);
+    applySubmittedResponses(root, submittedResponses);
+    if (readOnly) {
+      makeReadOnly(root);
+    }
 
     return () => {
       try {
@@ -123,10 +196,10 @@ export default function TokuiRenderer({
       }
       root.replaceChildren();
     };
-  }, [dsl, theme]);
+  }, [dsl, readOnly, submittedResponses, theme]);
 
   const submitResponses = useCallback(() => {
-    if (!rootRef.current || !onSubmitResponses) return;
+    if (readOnly || !rootRef.current || !onSubmitResponses) return;
     const responses = interactionSchema
       .map(field => ({
         field_id: field.field_id,
@@ -137,7 +210,7 @@ export default function TokuiRenderer({
     if (responses.length) {
       onSubmitResponses(responses);
     }
-  }, [interactionSchema, onSubmitResponses]);
+  }, [interactionSchema, onSubmitResponses, readOnly]);
 
   if (!dsl) {
     return null;

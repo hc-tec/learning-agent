@@ -9,6 +9,7 @@ from flaskr.service.shifu.shifu_tokui_funcs import (
     _build_guidance_prompt,
     _template_payload_from_request,
 )
+from flaskr.service.learn.tokui_runtime import _continuation_contract_errors
 
 
 def test_normalize_interaction_schema_preserves_blocking_checkpoint_fields():
@@ -229,3 +230,47 @@ def test_generation_prompt_includes_material_and_interaction_design_contracts():
     assert "explicit interaction/check points" in prompt
     assert "中国四类铁路核心参数对比图" in prompt
     assert "万吨列车制动健康预测" in prompt
+
+
+def test_generation_prompt_requires_continuation_instead_of_restart_after_response():
+    prompt = _build_generation_prompt(
+        template_payload={
+            "teacher_intent": "学生能区分四类铁路",
+            "prompt_template": "先讲四类铁路，再根据学生答案继续讲解",
+            "generation_options": {},
+        },
+        context_payload={
+            "mode": "learner_runtime",
+            "tokui_responses": [
+                {
+                    "field_id": "heavy_haul_answer",
+                    "field_type": "text",
+                    "value": "重载铁路",
+                }
+            ],
+        },
+    )
+
+    assert "generate only the next appropriate continuation block" in prompt
+    assert "do not restart the same explanation" in prompt
+    assert "append this new block after the prior" in prompt
+
+
+def test_continuation_contract_rejects_repeated_answered_fields():
+    errors = _continuation_contract_errors(
+        {
+            "interaction_schema": [
+                {"field_id": "heavy_haul_answer", "field_type": "text"},
+                {"field_id": "next_question", "field_type": "text"},
+            ]
+        },
+        {
+            "tokui_responses": [
+                {"field_id": "heavy_haul_answer", "value": "重载铁路"}
+            ]
+        },
+    )
+
+    assert errors
+    assert errors[0]["code"] == "TokuiContinuationRepeatedAnsweredFields"
+    assert errors[0]["field_ids"] == ["heavy_haul_answer"]

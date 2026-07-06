@@ -485,7 +485,10 @@ def _build_generation_prompt(
     repair_section = ""
     if validation_errors:
         repair_section = (
-            "\n\nThe previous TokUI DSL failed validation. Fix only the DSL while preserving intent.\n"
+            "\n\nThe previous TokUI output failed validation or a runtime continuation contract. "
+            "Fix the output while preserving intent. If the error says an already answered "
+            "field was repeated, remove that checkpoint and generate the next answer-dependent "
+            "feedback/continuation block instead.\n"
             f"Validation errors JSON:\n{json_dumps(validation_errors, [])}\n"
         )
     return f"""
@@ -537,8 +540,11 @@ Rules:
   Use "continuation_hint" to explain what the next generation should do after
   the answer is saved.
 - When Runtime context JSON contains tokui_responses, use those answers to
-  generate the next appropriate teaching content instead of asking the same
-  checkpoint again.
+  generate only the next appropriate continuation block. Do not repeat the
+  lesson opening, do not restart the same explanation, and do not ask the same
+  checkpoint again. The learner UI will append this new block after the prior
+  block, so the new DSL must read like "based on your answer, continue with..."
+  rather than a fresh course entry.
 {material_policy}
 {interaction_policy}
 

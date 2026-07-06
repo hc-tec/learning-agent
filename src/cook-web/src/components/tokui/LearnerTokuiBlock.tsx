@@ -19,6 +19,9 @@ type LearnerTokuiArtifact = {
   interaction_schema?: TokuiInteractionField[];
   validation_status?: string;
   fallback_text?: string;
+  submitted?: boolean;
+  submitted_responses?: TokuiResponseValue[];
+  artifact_chain?: LearnerTokuiArtifact[];
 };
 
 type LearnerTokuiBlockProps = {
@@ -34,6 +37,18 @@ type SaveTokuiResponsesResult = {
   continue_fields?: string[];
 };
 
+const artifactListFromResult = (
+  result?: LearnerTokuiArtifact | null,
+): LearnerTokuiArtifact[] => {
+  if (!result?.enabled) return [];
+  if (Array.isArray(result.artifact_chain) && result.artifact_chain.length) {
+    return result.artifact_chain.filter(Boolean);
+  }
+  return [result];
+};
+
+const EMPTY_SUBMITTED_RESPONSES: TokuiResponseValue[] = [];
+
 export default function LearnerTokuiBlock({
   shifuBid,
   outlineBid,
@@ -42,16 +57,18 @@ export default function LearnerTokuiBlock({
   style,
 }: LearnerTokuiBlockProps) {
   const { t } = useTranslation();
-  const [artifact, setArtifact] = useState<LearnerTokuiArtifact | null>(null);
+  const [artifacts, setArtifacts] = useState<LearnerTokuiArtifact[]>([]);
   const [loading, setLoading] = useState(false);
   const [showLoading, setShowLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [continuing, setContinuing] = useState(false);
   const [error, setError] = useState('');
+  const activeArtifact = artifacts[artifacts.length - 1] || null;
 
   const loadArtifact = useCallback(
     async (retry = false) => {
       if (!shifuBid || !outlineBid || previewMode) {
-        setArtifact(null);
+        setArtifacts([]);
         return;
       }
       setLoading(true);
@@ -66,25 +83,57 @@ export default function LearnerTokuiBlock({
             : await api.getLearnerTokui({
                 shifu_bid: shifuBid,
                 outline_bid: outlineBid,
-              })
+            })
         ) as LearnerTokuiArtifact;
-        setArtifact(result?.enabled ? result : null);
-      } catch {
-        setArtifact({
-          enabled: true,
-          validation_status: 'failed',
-          fallback_text: t('module.chat.tokuiLoadFailed'),
+        const nextArtifacts = artifactListFromResult(result);
+        setArtifacts(previous => {
+          if (
+            retry &&
+            result?.enabled &&
+            !Array.isArray(result.artifact_chain) &&
+            nextArtifacts.length
+          ) {
+            const previousBids = new Set(
+              nextArtifacts
+                .map(item => item.tokui_artifact_bid)
+                .filter(Boolean),
+            );
+            return [
+              ...previous.filter(
+                item =>
+                  !item.tokui_artifact_bid ||
+                  !previousBids.has(item.tokui_artifact_bid),
+              ),
+              ...nextArtifacts,
+            ];
+          }
+          return nextArtifacts;
         });
-        setError(t('module.chat.tokuiLoadFailed'));
+        return result;
+      } catch {
+        const message = t('module.chat.tokuiLoadFailed');
+        setArtifacts(previous =>
+          previous.length
+            ? previous
+            : [
+                {
+                  enabled: true,
+                  validation_status: 'failed',
+                  fallback_text: message,
+                },
+              ],
+        );
+        setError(message);
       } finally {
         setLoading(false);
+        setContinuing(false);
       }
     },
     [outlineBid, previewMode, shifuBid, t],
   );
 
   useEffect(() => {
-    setArtifact(null);
+    setArtifacts([]);
     void loadArtifact(false);
   }, [loadArtifact]);
 
@@ -99,14 +148,25 @@ export default function LearnerTokuiBlock({
 
   const submitResponses = useCallback(
     async (responses: TokuiResponseValue[]) => {
-      if (!artifact?.tokui_artifact_bid || !responses.length || saving) return;
+      if (!activeArtifact?.tokui_artifact_bid || !responses.length || saving) return;
       setSaving(true);
+      setArtifacts(previous =>
+        previous.map(item =>
+          item.tokui_artifact_bid === activeArtifact.tokui_artifact_bid
+            ? {
+                ...item,
+                submitted: true,
+                submitted_responses: responses,
+              }
+            : item,
+        ),
+      );
       try {
         const result = (await api.saveLearnerTokuiResponses({
           shifu_bid: shifuBid,
           outline_bid: outlineBid,
-          tokui_artifact_bid: artifact.tokui_artifact_bid,
-          schema_hash: artifact.schema_hash || '',
+          tokui_artifact_bid: activeArtifact.tokui_artifact_bid,
+          schema_hash: activeArtifact.schema_hash || '',
           responses,
         })) as SaveTokuiResponsesResult;
         const responseIds = new Set(
@@ -114,12 +174,13 @@ export default function LearnerTokuiBlock({
         );
         const shouldContinue =
           Boolean(result?.continue_required) ||
-          (artifact.interaction_schema || []).some(
+          (activeArtifact.interaction_schema || []).some(
             field =>
               responseIds.has(field.field_id) &&
               (field.blocking || field.continue_on_submit),
           );
         if (shouldContinue) {
+          setContinuing(true);
           await loadArtifact(true);
           return;
         }
@@ -136,9 +197,9 @@ export default function LearnerTokuiBlock({
       }
     },
     [
-      artifact?.interaction_schema,
-      artifact?.schema_hash,
-      artifact?.tokui_artifact_bid,
+      activeArtifact?.interaction_schema,
+      activeArtifact?.schema_hash,
+      activeArtifact?.tokui_artifact_bid,
       loadArtifact,
       outlineBid,
       saving,
@@ -147,14 +208,9 @@ export default function LearnerTokuiBlock({
     ],
   );
 
-  if (previewMode || (!artifact && !showLoading)) {
+  if (previewMode || (!artifacts.length && !showLoading)) {
     return null;
   }
-
-  const hasRenderableDsl =
-    artifact?.enabled &&
-    artifact.validation_status === 'validated' &&
-    Boolean(artifact.dsl);
 
   return (
     <section
@@ -163,46 +219,85 @@ export default function LearnerTokuiBlock({
       style={style}
     >
       <div className='rounded-md border border-[var(--border)] bg-[var(--card)] p-4 shadow-sm'>
-        {showLoading && loading ? (
+        {showLoading && loading && !artifacts.length ? (
           <div className='flex items-center gap-2 text-sm text-[var(--muted-foreground)]'>
             <Loader2 className='h-4 w-4 animate-spin' />
             {t('module.chat.tokuiGenerating')}
           </div>
-        ) : hasRenderableDsl ? (
-          <>
-            <TokuiRenderer
-              dsl={artifact?.dsl}
-              interactionSchema={artifact?.interaction_schema || []}
-              onSubmitResponses={submitResponses}
-            />
+        ) : (
+          <div className='space-y-4'>
+            {artifacts.map((item, index) => {
+              const hasRenderableDsl =
+                item.enabled &&
+                item.validation_status === 'validated' &&
+                Boolean(item.dsl);
+              const isSubmitted = Boolean(item.submitted);
+              const isPastArtifact = index < artifacts.length - 1;
+              const isReadOnly = isPastArtifact || isSubmitted;
+              return (
+                <div
+                  key={item.tokui_artifact_bid || `tokui-artifact-${index}`}
+                  className={index > 0 ? 'border-t border-[var(--border)] pt-4' : ''}
+                >
+                  {hasRenderableDsl ? (
+                    <>
+                      <TokuiRenderer
+                        dsl={item.dsl}
+                        interactionSchema={item.interaction_schema || []}
+                        readOnly={isReadOnly}
+                        submittedResponses={
+                          item.submitted_responses || EMPTY_SUBMITTED_RESPONSES
+                        }
+                        onSubmitResponses={
+                          isReadOnly ? undefined : submitResponses
+                        }
+                      />
+                      {isSubmitted ? (
+                        <div className='mt-2 text-xs text-[var(--muted-foreground)]'>
+                          已提交，答案会用于后续讲解。
+                        </div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <div className='space-y-3'>
+                      <p className='text-sm leading-6 text-[var(--muted-foreground)]'>
+                        {item.fallback_text ||
+                          error ||
+                          t('module.chat.tokuiLoadFailed')}
+                      </p>
+                      <Button
+                        type='button'
+                        size='sm'
+                        variant='outline'
+                        disabled={loading}
+                        onClick={() => void loadArtifact(true)}
+                      >
+                        {loading ? (
+                          <Loader2 className='h-4 w-4 animate-spin' />
+                        ) : (
+                          <RefreshCw className='h-4 w-4' />
+                        )}
+                        {t('module.chat.tokuiRetry')}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
             {saving ? (
-              <div className='mt-2 flex items-center gap-2 text-xs text-[var(--muted-foreground)]'>
+              <div className='flex items-center gap-2 text-xs text-[var(--muted-foreground)]'>
                 <Loader2 className='h-3 w-3 animate-spin' />
-                {t('module.chat.tokuiSaving')}
+                {continuing
+                  ? '已提交，正在根据你的回答继续讲解...'
+                  : t('module.chat.tokuiSaving')}
               </div>
             ) : null}
-          </>
-        ) : (
-          <div className='space-y-3'>
-            <p className='text-sm leading-6 text-[var(--muted-foreground)]'>
-              {artifact?.fallback_text ||
-                error ||
-                t('module.chat.tokuiLoadFailed')}
-            </p>
-            <Button
-              type='button'
-              size='sm'
-              variant='outline'
-              disabled={loading}
-              onClick={() => void loadArtifact(true)}
-            >
-              {loading ? (
-                <Loader2 className='h-4 w-4 animate-spin' />
-              ) : (
-                <RefreshCw className='h-4 w-4' />
-              )}
-              {t('module.chat.tokuiRetry')}
-            </Button>
+            {showLoading && loading && artifacts.length ? (
+              <div className='flex items-center gap-2 text-xs text-[var(--muted-foreground)]'>
+                <Loader2 className='h-3 w-3 animate-spin' />
+                正在准备后续讲解...
+              </div>
+            ) : null}
           </div>
         )}
       </div>

@@ -90,6 +90,35 @@ describe('TokuiRenderer response submission', () => {
     expect(textarea.placeholder).toBe('请输入你的答案');
   });
 
+  it('does not wipe in-progress answers on parent rerender', () => {
+    const dsl = `
+      <form class="tokui-form" data-tokui-tag="form">
+        <textarea name="answer">请输入你的答案</textarea>
+      </form>
+    `;
+    const { container, rerender } = render(
+      <TokuiRenderer
+        dsl={dsl}
+        interactionSchema={[{ field_id: 'answer', field_type: 'text' }]}
+        onSubmitResponses={jest.fn()}
+      />,
+    );
+    const textarea = container.querySelector(
+      'textarea[name="answer"]',
+    ) as HTMLTextAreaElement;
+
+    fireEvent.change(textarea, { target: { value: '还没提交的答案' } });
+    rerender(
+      <TokuiRenderer
+        dsl={dsl}
+        interactionSchema={[{ field_id: 'answer', field_type: 'text' }]}
+        onSubmitResponses={jest.fn()}
+      />,
+    );
+
+    expect(textarea.value).toBe('还没提交的答案');
+  });
+
   it('ignores TokUI buttons that are not inside a form', () => {
     const handleSubmit = jest.fn();
     render(
@@ -138,5 +167,45 @@ describe('TokuiRenderer response submission', () => {
         value: '按 id 读取',
       },
     ]);
+  });
+
+  it('renders submitted responses in read-only mode without resubmitting', () => {
+    const handleSubmit = jest.fn();
+    const { container } = render(
+      <TokuiRenderer
+        dsl={`
+          <form class="tokui-form" data-tokui-tag="form">
+            <textarea name="heavy_haul_answer">请输入你的答案</textarea>
+            <button class="tokui-btn" type="button" data-tokui-tag="btn">
+              提交答案
+            </button>
+          </form>
+        `}
+        interactionSchema={[
+          { field_id: 'heavy_haul_answer', field_type: 'text' },
+        ]}
+        submittedResponses={[
+          {
+            field_id: 'heavy_haul_answer',
+            field_type: 'text',
+            value: '重载铁路',
+          },
+        ]}
+        readOnly
+        onSubmitResponses={handleSubmit}
+      />,
+    );
+
+    const textarea = container.querySelector(
+      'textarea[name="heavy_haul_answer"]',
+    ) as HTMLTextAreaElement;
+
+    expect(textarea.value).toBe('重载铁路');
+    expect(textarea).toHaveAttribute('readonly');
+    expect(screen.getByRole('button', { name: '提交答案' })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: '提交答案' }));
+
+    expect(handleSubmit).not.toHaveBeenCalled();
   });
 });
