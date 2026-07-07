@@ -33,6 +33,35 @@ from flaskr.util.datetime import now_utc
 
 TOKUI_FALLBACK_KEY = "server.learn.tokuiFallback"
 
+CONTINUATION_FEEDBACK_TERMS = (
+    "回答正确",
+    "判断正确",
+    "答得对",
+    "很准确",
+    "理解得很到位",
+    "存在误区",
+    "这里有误区",
+    "不属于",
+    "不是高铁",
+    "回答不够具体",
+    "还不够具体",
+    "含糊",
+    "太笼统",
+    "比较笼统",
+    "答非所问",
+    "先回到问题",
+    "回到原问题",
+    "有点跑题",
+    "与问题无关",
+    "和问题无关",
+    "问题无关",
+    "correct",
+    "incorrect",
+    "vague",
+    "incomplete",
+    "off-topic",
+)
+
 
 def _latest_published_template(
     shifu_bid: str, outline_bid: str
@@ -240,6 +269,20 @@ def _continuation_contract_errors(
     interaction_schema = generated.get("interaction_schema") or []
     if not isinstance(interaction_schema, list):
         return []
+    errors: list[dict[str, Any]] = []
+    dsl = str(generated.get("dsl") or "")
+    feedback_prefix = dsl[:600]
+    if not any(term in feedback_prefix for term in CONTINUATION_FEEDBACK_TERMS):
+        errors.append(
+            {
+                "message": (
+                    "Continuation output did not provide explicit answer-quality "
+                    "feedback. Start the continuation with a feedback block using "
+                    "回答正确, 存在误区, 回答不够具体, or 答非所问 before any new teaching."
+                ),
+                "code": "TokuiContinuationMissingAnswerFeedback",
+            }
+        )
     repeated_field_ids = sorted(
         {
             str(field.get("field_id") or "").strip()
@@ -248,19 +291,19 @@ def _continuation_contract_errors(
             and str(field.get("field_id") or "").strip() in answered_field_ids
         }
     )
-    if not repeated_field_ids:
-        return []
-    return [
-        {
-            "message": (
-                "Continuation output repeated already answered learner fields. "
-                "Generate only the next feedback/continuation block and do not "
-                "ask the same checkpoint again."
-            ),
-            "code": "TokuiContinuationRepeatedAnsweredFields",
-            "field_ids": repeated_field_ids,
-        }
-    ]
+    if repeated_field_ids:
+        errors.append(
+            {
+                "message": (
+                    "Continuation output repeated already answered learner fields. "
+                    "Generate only the next feedback/continuation block and do not "
+                    "ask the same checkpoint again."
+                ),
+                "code": "TokuiContinuationRepeatedAnsweredFields",
+                "field_ids": repeated_field_ids,
+            }
+        )
+    return errors
 
 
 def _artifact_to_dict(

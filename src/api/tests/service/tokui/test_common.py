@@ -135,6 +135,7 @@ def test_normalize_interaction_points_preserves_blocking_dependency_design():
             {
                 "field_id": "railway_type_check",
                 "position": 3,
+                "insertion_point": "讲完重载铁路定义后立即插入",
                 "kind": "feynman_check",
                 "question": "万吨列车制动健康预测属于哪类铁路？",
                 "response_schema": {"field_type": "text"},
@@ -148,6 +149,7 @@ def test_normalize_interaction_points_preserves_blocking_dependency_design():
         {
             "interaction_id": "railway_type_check",
             "position": "3",
+            "insertion_point": "讲完重载铁路定义后立即插入",
             "kind": "feynman_check",
             "prompt": "万吨列车制动健康预测属于哪类铁路？",
             "response_schema": {"field_type": "text"},
@@ -223,6 +225,7 @@ def test_generation_prompt_includes_material_and_interaction_design_contracts():
                 "blocking_checkpoint": True,
                 "interaction_points": [
                     {
+                        "insertion_point": "讲完重载铁路场景后插入",
                         "prompt": "客户说万吨列车制动健康预测属于哪类铁路？",
                         "blocking": True,
                     }
@@ -234,11 +237,16 @@ def test_generation_prompt_includes_material_and_interaction_design_contracts():
 
     assert "structured material placements" in prompt
     assert "explicit interaction/check points" in prompt
+    assert "flow insertion point by default" in prompt
+    assert "Do not dump all interaction points together" in prompt
+    assert "student-facing teaching rewrite" in prompt
+    assert "do not merely copy the teacher script verbatim" in prompt
+    assert "learner-facing classroom flow" in prompt
     assert "中国四类铁路核心参数对比图" in prompt
     assert "万吨列车制动健康预测" in prompt
 
 
-def test_generation_prompt_requires_continuation_instead_of_restart_after_response():
+def test_generation_prompt_requires_differentiated_feedback_after_response():
     prompt = _build_generation_prompt(
         template_payload={
             "teacher_intent": "学生能区分四类铁路",
@@ -258,13 +266,30 @@ def test_generation_prompt_requires_continuation_instead_of_restart_after_respon
     )
 
     assert "generate only the next appropriate continuation block" in prompt
+    assert "first DSL block" in prompt
     assert "do not restart the same explanation" in prompt
     assert "append this new block after the prior" in prompt
+    assert "diagnose the answer quality" in prompt
+    assert "correct" in prompt
+    assert "incorrect" in prompt
+    assert "vague/incomplete" in prompt
+    assert "off-topic" in prompt
+    assert "Choose the continuation strategy from that diagnosis" in prompt
+    assert "incorrect, vague, incomplete, or off-topic answers must get" in prompt
+    assert "回答正确" in prompt
+    assert "存在误区" in prompt
+    assert "回答不够具体" in prompt
+    assert "答非所问" in prompt
+    assert "Do not mechanically continue" in prompt
+    assert "_retry" in prompt
+    assert "_clarification" in prompt
+    assert "do not reuse an already answered field_id" in prompt
 
 
 def test_continuation_contract_rejects_repeated_answered_fields():
     errors = _continuation_contract_errors(
         {
+            "dsl": "[card tt:\"回答正确\"]答得对，我们继续。[/card]",
             "interaction_schema": [
                 {"field_id": "heavy_haul_answer", "field_type": "text"},
                 {"field_id": "next_question", "field_type": "text"},
@@ -280,6 +305,25 @@ def test_continuation_contract_rejects_repeated_answered_fields():
     assert errors
     assert errors[0]["code"] == "TokuiContinuationRepeatedAnsweredFields"
     assert errors[0]["field_ids"] == ["heavy_haul_answer"]
+
+
+def test_continuation_contract_requires_answer_quality_feedback():
+    errors = _continuation_contract_errors(
+        {
+            "dsl": "[card tt:\"继续学习\"]现在继续讲城际铁路。[/card]",
+            "interaction_schema": [
+                {"field_id": "next_question", "field_type": "text"},
+            ],
+        },
+        {
+            "tokui_responses": [
+                {"field_id": "heavy_haul_answer", "value": "重载铁路"}
+            ]
+        },
+    )
+
+    assert errors
+    assert errors[0]["code"] == "TokuiContinuationMissingAnswerFeedback"
 
 
 def test_continue_response_detection_ignores_non_blocking_answers():

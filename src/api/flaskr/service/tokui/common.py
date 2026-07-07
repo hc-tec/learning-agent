@@ -166,6 +166,9 @@ def normalize_interaction_points(value: Any) -> list[dict[str, Any]]:
                     or f"interaction_{index + 1}"
                 ).strip(),
                 "position": str(item.get("position") or index + 1).strip(),
+                "insertion_point": str(
+                    item.get("insertion_point") or item.get("trigger_after") or ""
+                ).strip(),
                 "kind": str(item.get("kind") or "checkpoint").strip(),
                 "prompt": str(item.get("prompt") or item.get("question") or "").strip(),
                 "response_schema": response_schema,

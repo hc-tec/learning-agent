@@ -470,9 +470,33 @@ def _build_generation_prompt(
     if interaction_points:
         interaction_policy += (
             "- The teacher provided explicit interaction/check points. Treat them "
-            "as course design requirements, not suggestions. Generate at most the "
-            "next unanswered blocking point at this runtime step; after the answer "
-            "is saved, continue with the next dependent explanation or checkpoint.\n"
+            "as course design requirements, not suggestions. Each interaction point "
+            "is a flow insertion point by default: teach the relevant section first, then render "
+            "that checkpoint at its position/insertion_point. Do not dump all "
+            "interaction points together as a form or end-of-lesson quiz unless the "
+            "teacher explicitly asked for a quiz. Generate at most the next "
+            "unanswered blocking point at this runtime step; after the answer is "
+            "saved, continue with the next dependent explanation or checkpoint.\n"
+        )
+    feedback_policy = ""
+    tokui_responses = context_payload.get("tokui_responses")
+    if isinstance(tokui_responses, list) and tokui_responses:
+        feedback_policy = (
+            "- Runtime context includes saved learner answers. Before moving on, "
+            "diagnose the answer quality and give differentiated feedback: if the "
+            "answer is correct, confirm why and continue; if it is incorrect, name "
+            "the misconception and reteach the relevant prerequisite; if it is vague "
+            "or incomplete, ask for precision or give a contrastive example; if it is "
+            "off-topic, explicitly bring the learner back to the original checkpoint. "
+            "Choose the continuation strategy from that diagnosis: correct answers may "
+            "advance, but incorrect, vague, incomplete, or off-topic answers must get "
+            "remediation, a clarifying prompt, or a return-to-question step before the "
+            "next dependent concept. If you ask the learner to try again, use a new "
+            "field_id with a suffix such as _retry or _clarification; do not reuse an "
+            "already answered field_id. Use an explicit Chinese feedback label such as "
+            "\"回答正确\", \"存在误区\", \"回答不够具体\", or \"答非所问\" so the learner "
+            "understands why the next step changed. Do not mechanically continue as if "
+            "every answer were correct.\n"
         )
     material_policy = (
         "- The teacher provided structured material placements. Use their "
@@ -488,7 +512,11 @@ def _build_generation_prompt(
             "\n\nThe previous TokUI output failed validation or a runtime continuation contract. "
             "Fix the output while preserving intent. If the error says an already answered "
             "field was repeated, remove that checkpoint and generate the next answer-dependent "
-            "feedback/continuation block instead.\n"
+            "feedback/continuation block instead. If you still need the learner to retry "
+            "the same concept, ask a new retry question with a fresh field_id suffix such as "
+            "_retry or _clarification. If the error says the continuation is missing "
+            "answer-quality feedback, make the first DSL block an explicit feedback card "
+            "using \"回答正确\", \"存在误区\", \"回答不够具体\", or \"答非所问\" before any new teaching.\n"
             f"Validation errors JSON:\n{json_dumps(validation_errors, [])}\n"
         )
     return f"""
@@ -521,8 +549,13 @@ Rules:
 - Treat teacher_intent as the learner outcome and prompt_template as the
   teacher's detailed teaching guide. The guide may contain teaching sequence,
   examples, misconceptions, checkpoint timing, feedback rules, and standards
-  for whether the learner has actually understood. Follow those teaching
-  instructions; do not reduce them to a short generic explanation.
+  for whether the learner has actually understood. Use it as the source
+  material for a student-facing teaching rewrite: restructure, paraphrase,
+  stage, and adapt it into TokUI teaching, but preserve critical facts,
+  examples, learner goals, and checkpoint logic. Do not reduce it to a short
+  generic summary and do not merely copy the teacher script verbatim. The
+  generated lesson should read like a teacher-facing guide has been rewritten
+  into a clear learner-facing classroom flow, not pasted as raw instructions.
 - Reference only provided media/material URLs or IDs.
 - If teacher media refs are provided, use them where they help explain the
   concept. For images, render an image/media element using the provided stable
@@ -533,6 +566,10 @@ Rules:
 - Keep the output concise enough for one lesson node.
 - Treat learner-fillable input as a teaching checkpoint when later lesson content
   depends on the learner answer.
+- Treat teacher-provided interaction_points as in-flow teaching checkpoints.
+  Explain the relevant section first, then place the checkpoint at its
+  position/insertion_point. Do not collect multiple checkpoints as one
+  continuous form or final quiz unless the teacher explicitly instructs that.
 - For a checkpoint, generate only the content before the question plus the
   learner input/submit UI. Do not generate answer-dependent follow-up content in
   the same DSL before the learner submits.
@@ -540,13 +577,23 @@ Rules:
   Use "continuation_hint" to explain what the next generation should do after
   the answer is saved.
 - When Runtime context JSON contains tokui_responses, use those answers to
-  generate only the next appropriate continuation block. Do not repeat the
-  lesson opening, do not restart the same explanation, and do not ask the same
-  checkpoint again. The learner UI will append this new block after the prior
-  block, so the new DSL must read like "based on your answer, continue with..."
-  rather than a fresh course entry.
+  generate only the next appropriate continuation block. The first DSL block
+  MUST be an answer-quality feedback block with an explicit label: "回答正确",
+  "存在误区", "回答不够具体", or "答非所问". Do not repeat the lesson opening,
+  do not restart the same explanation, and do not ask the same checkpoint again.
+  If the answer is vague or off-topic and the learner must try again, ask a new
+  clarification/retry control with a fresh field_id suffix such as _retry or
+  _clarification instead of reusing an answered field_id.
+  The learner UI will append this new block after the prior block, so the new
+  DSL must read like "based on your answer, continue with..." rather than a
+  fresh course entry.
+- In continuation blocks, always provide answer-quality feedback before new
+  teaching content. Decide whether the learner answer is correct, incorrect,
+  vague/incomplete, or off-topic, then choose the follow-up strategy from that
+  diagnosis. Do not treat every submitted answer as correct.
 {material_policy}
 {interaction_policy}
+{feedback_policy}
 
 Teacher template JSON:
 {json_dumps(template_payload, {})}
