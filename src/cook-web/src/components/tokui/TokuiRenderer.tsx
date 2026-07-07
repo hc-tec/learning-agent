@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useLayoutEffect, useRef } from 'react';
 import { TokUI, setTheme } from '@jboltai/tokui';
 import '@jboltai/tokui/css';
 
@@ -119,20 +119,25 @@ const applySubmittedResponses = (
       });
       return;
     }
-    elements[0].value = valueToDisplayString(value);
+    const displayValue = valueToDisplayString(value);
+    if (elements[0] instanceof HTMLTextAreaElement) {
+      elements[0].defaultValue = displayValue;
+      elements[0].textContent = displayValue;
+    }
+    elements[0].value = displayValue;
   });
 };
 
-const makeReadOnly = (root: HTMLDivElement) => {
+const setReadOnlyState = (root: HTMLDivElement, readOnly: boolean) => {
   root
     .querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input, textarea')
     .forEach(element => {
-      element.readOnly = true;
+      element.readOnly = readOnly;
     });
   root
     .querySelectorAll<HTMLSelectElement | HTMLButtonElement>('select, button')
     .forEach(element => {
-      element.disabled = true;
+      element.disabled = readOnly;
     });
 };
 
@@ -168,7 +173,7 @@ export default function TokuiRenderer({
 }: TokuiRendererProps) {
   const rootRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const root = rootRef.current;
     if (!root || !dsl) return;
 
@@ -184,9 +189,7 @@ export default function TokuiRenderer({
     ui.render(dsl);
     normalizeRenderedFields(root);
     applySubmittedResponses(root, submittedResponses);
-    if (readOnly) {
-      makeReadOnly(root);
-    }
+    setReadOnlyState(root, readOnly);
 
     return () => {
       try {
@@ -196,7 +199,14 @@ export default function TokuiRenderer({
       }
       root.replaceChildren();
     };
-  }, [dsl, readOnly, submittedResponses, theme]);
+  }, [dsl, theme]);
+
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root || !dsl) return;
+    applySubmittedResponses(root, submittedResponses);
+    setReadOnlyState(root, readOnly);
+  }, [dsl, readOnly, submittedResponses]);
 
   const submitResponses = useCallback(() => {
     if (readOnly || !rootRef.current || !onSubmitResponses) return;

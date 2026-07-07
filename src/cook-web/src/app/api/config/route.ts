@@ -48,10 +48,11 @@ export async function GET(request: Request) {
       if (isLocalDevHost(requestHost) && isLocaltestHost(configuredHost)) {
         return NextResponse.json({ apiBaseUrl: '' });
       }
-      // Treat localhost-to-localhost as the same environment so the browser can
-      // still target the explicit backend origin.
+      // Localhost-to-localhost still crosses ports in the browser. Keep local
+      // development on same-origin /api so Next dev rewrites handle the backend
+      // hop without CORS.
       if (isLocalDevHost(requestHost) && isLocalDevHost(configuredHost)) {
-        return NextResponse.json({ apiBaseUrl: configured });
+        return NextResponse.json({ apiBaseUrl: '' });
       }
       if (shouldUseSameOriginApiBase(configuredHost, requestHost)) {
         return NextResponse.json({ apiBaseUrl: '' });

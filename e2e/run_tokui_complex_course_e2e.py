@@ -1085,8 +1085,8 @@ async def verify_learner_browser_rendering(ids: dict[str, str], token: str) -> d
             (...args) => {
               const token = args[0];
               try {
-                localStorage.setItem('token', token);
-                localStorage.setItem('token_faked', '0');
+                localStorage.setItem('token', JSON.stringify(token));
+                localStorage.setItem('token_faked', JSON.stringify(0));
                 document.cookie = `token=${token}; path=/`;
               } catch {}
             }
@@ -1178,19 +1178,21 @@ async def main() -> int:
         browser = await verify_learner_browser_rendering(matrix["ids"], matrix["token"])
         browser_scenario = ScenarioRecorder("learner_browser_rendering")
         browser_scenario.evidence["browser"] = browser
-        browser_scenario.check(
-            "learner_page_rendered_tokui_block",
-            browser.get("hasLearnerTokuiBlock") and browser.get("hasRenderer"),
-            "browser rendered learner TokUI block and renderer root",
-            browser,
-        )
-        browser_scenario.check(
-            "learner_browser_has_tokui_images",
-            int(browser.get("imageCount") or 0) >= 2,
-            "browser DOM exposes at least two TokUI-rendered media nodes",
-            browser.get("imageSources"),
-        )
-        result["scenarios"].append(browser_scenario.to_result())
+        try:
+            browser_scenario.check(
+                "learner_page_rendered_tokui_block",
+                browser.get("hasLearnerTokuiBlock") and browser.get("hasRenderer"),
+                "browser rendered learner TokUI block and renderer root",
+                browser,
+            )
+            browser_scenario.check(
+                "learner_browser_has_tokui_images",
+                int(browser.get("imageCount") or 0) >= 2,
+                "browser DOM exposes at least two TokUI-rendered media nodes",
+                browser.get("imageSources"),
+            )
+        finally:
+            result["scenarios"].append(browser_scenario.to_result())
         result["fake_image_provider_requests"] = FakeImageProviderHandler.request_count
         result["fake_image_provider_mode_counts"] = FakeImageProviderHandler.mode_counts
         result["passed"] = all(scenario.get("passed") for scenario in result["scenarios"])

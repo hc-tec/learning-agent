@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2, RefreshCw } from 'lucide-react';
 import api from '@/api';
@@ -22,6 +22,7 @@ type LearnerTokuiArtifact = {
   submitted?: boolean;
   submitted_responses?: TokuiResponseValue[];
   artifact_chain?: LearnerTokuiArtifact[];
+  render_nonce?: number;
 };
 
 type LearnerTokuiBlockProps = {
@@ -40,14 +41,33 @@ type SaveTokuiResponsesResult = {
 const artifactListFromResult = (
   result?: LearnerTokuiArtifact | null,
 ): LearnerTokuiArtifact[] => {
-  if (!result?.enabled) return [];
+  if (!result || result.enabled === false) return [];
   if (Array.isArray(result.artifact_chain) && result.artifact_chain.length) {
     return result.artifact_chain.filter(Boolean);
   }
-  return [result];
+  if (result.dsl || result.fallback_text || result.validation_status) {
+    return [result];
+  }
+  return [];
 };
 
 const EMPTY_SUBMITTED_RESPONSES: TokuiResponseValue[] = [];
+
+const isValidatedArtifact = (item: LearnerTokuiArtifact) =>
+  item.validation_status === 'validated' && Boolean(item.dsl);
+
+const appendFallbackArtifact = (
+  previous: LearnerTokuiArtifact[],
+  fallbackText: string,
+) => {
+  const fallback: LearnerTokuiArtifact = {
+    enabled: true,
+    validation_status: 'failed',
+    fallback_text: fallbackText,
+  };
+  const visibleHistory = previous.filter(isValidatedArtifact);
+  return visibleHistory.length ? [...visibleHistory, fallback] : [fallback];
+};
 
 export default function LearnerTokuiBlock({
   shifuBid,
@@ -63,6 +83,7 @@ export default function LearnerTokuiBlock({
   const [saving, setSaving] = useState(false);
   const [continuing, setContinuing] = useState(false);
   const [error, setError] = useState('');
+  const savingRef = useRef(false);
   const activeArtifact = artifacts[artifacts.length - 1] || null;
 
   const loadArtifact = useCallback(
@@ -101,8 +122,9 @@ export default function LearnerTokuiBlock({
             return [
               ...previous.filter(
                 item =>
-                  !item.tokui_artifact_bid ||
-                  !previousBids.has(item.tokui_artifact_bid),
+                  isValidatedArtifact(item) &&
+                  (!item.tokui_artifact_bid ||
+                    !previousBids.has(item.tokui_artifact_bid)),
               ),
               ...nextArtifacts,
             ];
@@ -113,15 +135,9 @@ export default function LearnerTokuiBlock({
       } catch {
         const message = t('module.chat.tokuiLoadFailed');
         setArtifacts(previous =>
-          previous.length
-            ? previous
-            : [
-                {
-                  enabled: true,
-                  validation_status: 'failed',
-                  fallback_text: message,
-                },
-              ],
+          retry && previous.length
+            ? appendFallbackArtifact(previous, message)
+            : appendFallbackArtifact([], message),
         );
         setError(message);
       } finally {
@@ -148,19 +164,17 @@ export default function LearnerTokuiBlock({
 
   const submitResponses = useCallback(
     async (responses: TokuiResponseValue[]) => {
-      if (!activeArtifact?.tokui_artifact_bid || !responses.length || saving) return;
+      if (
+        !activeArtifact?.tokui_artifact_bid ||
+        !responses.length ||
+        saving ||
+        savingRef.current
+      ) {
+        return;
+      }
+      savingRef.current = true;
+      const responseSnapshot = responses.map(response => ({ ...response }));
       setSaving(true);
-      setArtifacts(previous =>
-        previous.map(item =>
-          item.tokui_artifact_bid === activeArtifact.tokui_artifact_bid
-            ? {
-                ...item,
-                submitted: true,
-                submitted_responses: responses,
-              }
-            : item,
-        ),
-      );
       try {
         const result = (await api.saveLearnerTokuiResponses({
           shifu_bid: shifuBid,
@@ -179,6 +193,17 @@ export default function LearnerTokuiBlock({
               responseIds.has(field.field_id) &&
               (field.blocking || field.continue_on_submit),
           );
+        setArtifacts(previous =>
+          previous.map(item =>
+            item.tokui_artifact_bid === activeArtifact.tokui_artifact_bid
+              ? {
+                  ...item,
+                  submitted: true,
+                  submitted_responses: responseSnapshot,
+                }
+              : item,
+          ),
+        );
         if (shouldContinue) {
           setContinuing(true);
           await loadArtifact(true);
@@ -187,12 +212,25 @@ export default function LearnerTokuiBlock({
         toast({ title: t('module.chat.tokuiResponseSaved') });
       } catch {
         const message = t('module.chat.tokuiLoadFailed');
+        setArtifacts(previous =>
+          previous.map(item =>
+            item.tokui_artifact_bid === activeArtifact.tokui_artifact_bid
+              ? {
+                  ...item,
+                  submitted: false,
+                  submitted_responses: responseSnapshot,
+                  render_nonce: (item.render_nonce || 0) + 1,
+                }
+              : item,
+          ),
+        );
         setError(message);
         toast({
           title: message,
           variant: 'destructive',
         });
       } finally {
+        savingRef.current = false;
         setSaving(false);
       }
     },
@@ -228,12 +266,13 @@ export default function LearnerTokuiBlock({
           <div className='space-y-4'>
             {artifacts.map((item, index) => {
               const hasRenderableDsl =
-                item.enabled &&
                 item.validation_status === 'validated' &&
                 Boolean(item.dsl);
               const isSubmitted = Boolean(item.submitted);
               const isPastArtifact = index < artifacts.length - 1;
               const isReadOnly = isPastArtifact || isSubmitted;
+              const submittedResponses =
+                item.submitted_responses || EMPTY_SUBMITTED_RESPONSES;
               return (
                 <div
                   key={item.tokui_artifact_bid || `tokui-artifact-${index}`}
@@ -242,12 +281,13 @@ export default function LearnerTokuiBlock({
                   {hasRenderableDsl ? (
                     <>
                       <TokuiRenderer
+                        key={`${item.tokui_artifact_bid || index}:${
+                          item.render_nonce || 0
+                        }`}
                         dsl={item.dsl}
                         interactionSchema={item.interaction_schema || []}
                         readOnly={isReadOnly}
-                        submittedResponses={
-                          item.submitted_responses || EMPTY_SUBMITTED_RESPONSES
-                        }
+                        submittedResponses={submittedResponses}
                         onSubmitResponses={
                           isReadOnly ? undefined : submitResponses
                         }

@@ -161,6 +161,33 @@ def _load_responses_by_artifact(
     return responses_by_artifact
 
 
+def _continue_field_ids(interaction_schema: list[Any]) -> set[str]:
+    return {
+        str(item.get("field_id") or "").strip()
+        for item in interaction_schema
+        if isinstance(item, dict)
+        and (item.get("blocking") or item.get("continue_on_submit"))
+        and str(item.get("field_id") or "").strip()
+    }
+
+
+def _response_field_ids(responses: list[Any]) -> set[str]:
+    return {
+        str(response.get("field_id") or "").strip()
+        for response in responses
+        if isinstance(response, dict) and str(response.get("field_id") or "").strip()
+    }
+
+
+def _has_continue_response_values(
+    interaction_schema: list[Any], responses: list[Any]
+) -> bool:
+    continue_field_ids = _continue_field_ids(interaction_schema)
+    if not continue_field_ids:
+        return False
+    return bool(continue_field_ids & _response_field_ids(responses))
+
+
 def _build_learner_context(
     *,
     user_bid: str,
@@ -282,6 +309,58 @@ def _find_reusable_artifact(
     )
 
 
+def _has_newer_artifact(artifact: LearnTokuiArtifact) -> bool:
+    return (
+        LearnTokuiArtifact.query.filter(
+            LearnTokuiArtifact.user_bid == artifact.user_bid,
+            LearnTokuiArtifact.progress_record_bid == artifact.progress_record_bid,
+            LearnTokuiArtifact.template_hash == artifact.template_hash,
+            LearnTokuiArtifact.deleted == 0,
+            LearnTokuiArtifact.id > artifact.id,
+        )
+        .order_by(LearnTokuiArtifact.id.asc())
+        .first()
+        is not None
+    )
+
+
+def _artifact_has_saved_continue_response(artifact: LearnTokuiArtifact) -> bool:
+    continue_field_ids = _continue_field_ids(json_loads(artifact.interaction_schema, []))
+    if not continue_field_ids:
+        return False
+    return (
+        LearnTokuiResponse.query.filter(
+            LearnTokuiResponse.user_bid == artifact.user_bid,
+            LearnTokuiResponse.tokui_artifact_bid == artifact.tokui_artifact_bid,
+            LearnTokuiResponse.field_id.in_(continue_field_ids),
+            LearnTokuiResponse.deleted == 0,
+        )
+        .order_by(LearnTokuiResponse.id.desc())
+        .first()
+        is not None
+    )
+
+
+def _should_reuse_artifact(artifact: LearnTokuiArtifact) -> bool:
+    if not _artifact_has_saved_continue_response(artifact):
+        return True
+    return _has_newer_artifact(artifact)
+
+
+def _filter_artifacts_for_chain(
+    artifacts: list[LearnTokuiArtifact],
+) -> list[LearnTokuiArtifact]:
+    if not artifacts:
+        return []
+    last_artifact_bid = artifacts[-1].tokui_artifact_bid
+    return [
+        artifact
+        for artifact in artifacts
+        if artifact.validation_status == TOKUI_STATUS_VALIDATED
+        or artifact.tokui_artifact_bid == last_artifact_bid
+    ]
+
+
 def _load_artifact_chain(
     *,
     user_bid: str,
@@ -304,16 +383,12 @@ def _load_artifact_chain(
         for item in artifacts
     ):
         artifacts.append(include_failed_artifact)
+    artifacts = _filter_artifacts_for_chain(artifacts)
     artifact_bids = [artifact.tokui_artifact_bid for artifact in artifacts]
     responses_by_artifact = _load_responses_by_artifact(
         user_bid=user_bid, artifact_bids=artifact_bids
     )
-    return [
-        _artifact_to_dict(artifact, responses_by_artifact)
-        for artifact in artifacts
-        if artifact.validation_status == TOKUI_STATUS_VALIDATED
-        or artifact is include_failed_artifact
-    ]
+    return [_artifact_to_dict(artifact, responses_by_artifact) for artifact in artifacts]
 
 
 def _attach_artifact_chain(
@@ -356,15 +431,16 @@ def get_or_generate_tokui_artifact(
                 template_hash_value=template.template_hash,
             )
             if reusable:
-                result = _artifact_to_dict(reusable)
-                result["enabled"] = True
-                result["reused"] = True
-                return _attach_artifact_chain(
-                    result,
-                    user_bid=user_bid,
-                    progress_record_bid=progress_record.progress_record_bid,
-                    template_hash_value=template.template_hash,
-                )
+                if _should_reuse_artifact(reusable):
+                    result = _artifact_to_dict(reusable)
+                    result["enabled"] = True
+                    result["reused"] = True
+                    return _attach_artifact_chain(
+                        result,
+                        user_bid=user_bid,
+                        progress_record_bid=progress_record.progress_record_bid,
+                        template_hash_value=template.template_hash,
+                    )
 
         context_payload = _build_learner_context(
             user_bid=user_bid,

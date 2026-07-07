@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from flaskr.service.tokui.common import (
     normalize_interaction_points,
     normalize_interaction_schema,
@@ -10,6 +12,10 @@ from flaskr.service.shifu.shifu_tokui_funcs import (
     _template_payload_from_request,
 )
 from flaskr.service.learn.tokui_runtime import _continuation_contract_errors
+from flaskr.service.learn.tokui_runtime import (
+    _filter_artifacts_for_chain,
+    _has_continue_response_values,
+)
 
 
 def test_normalize_interaction_schema_preserves_blocking_checkpoint_fields():
@@ -274,3 +280,83 @@ def test_continuation_contract_rejects_repeated_answered_fields():
     assert errors
     assert errors[0]["code"] == "TokuiContinuationRepeatedAnsweredFields"
     assert errors[0]["field_ids"] == ["heavy_haul_answer"]
+
+
+def test_continue_response_detection_ignores_non_blocking_answers():
+    interaction_schema = [
+        {
+            "field_id": "background_answer",
+            "field_type": "text",
+            "blocking": False,
+            "continue_on_submit": False,
+        },
+        {
+            "field_id": "heavy_haul_answer",
+            "field_type": "text",
+            "blocking": True,
+            "continue_on_submit": True,
+        },
+    ]
+
+    assert (
+        _has_continue_response_values(
+            interaction_schema,
+            [{"field_id": "background_answer", "value": "铁路经验"}],
+        )
+        is False
+    )
+    assert (
+        _has_continue_response_values(
+            interaction_schema,
+            [{"field_id": "heavy_haul_answer", "value": "重载铁路"}],
+        )
+        is True
+    )
+
+
+def test_artifact_chain_keeps_latest_failed_fallback_without_old_failures():
+    artifacts = [
+        SimpleNamespace(
+            tokui_artifact_bid="artifact-1",
+            validation_status="validated",
+        ),
+        SimpleNamespace(
+            tokui_artifact_bid="artifact-failed-old",
+            validation_status="failed",
+        ),
+        SimpleNamespace(
+            tokui_artifact_bid="artifact-failed-latest",
+            validation_status="failed",
+        ),
+    ]
+
+    filtered = _filter_artifacts_for_chain(artifacts)
+
+    assert [item.tokui_artifact_bid for item in filtered] == [
+        "artifact-1",
+        "artifact-failed-latest",
+    ]
+
+
+def test_artifact_chain_drops_old_failed_fallback_after_successful_continuation():
+    artifacts = [
+        SimpleNamespace(
+            tokui_artifact_bid="artifact-1",
+            validation_status="validated",
+        ),
+        SimpleNamespace(
+            tokui_artifact_bid="artifact-failed-old",
+            validation_status="failed",
+        ),
+        SimpleNamespace(
+            tokui_artifact_bid="artifact-2",
+            validation_status="validated",
+        ),
+    ]
+
+    filtered = _filter_artifacts_for_chain(artifacts)
+
+    assert [item.tokui_artifact_bid for item in filtered] == [
+        "artifact-1",
+        "artifact-2",
+    ]
