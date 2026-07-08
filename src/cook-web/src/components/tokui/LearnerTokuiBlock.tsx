@@ -48,7 +48,8 @@ type StreamingPreviewState = {
   streamKey: string;
   chunks: string[];
   complete: boolean;
-  status?: string;
+  status?: 'repairing' | 'final_failed' | string;
+  errorMessage?: string;
 };
 
 const artifactListFromResult = (
@@ -99,6 +100,7 @@ export default function LearnerTokuiBlock({
   const savingRef = useRef(false);
   const activeStreamRef = useRef<LearnerTokuiStreamHandle | null>(null);
   const streamRequestSeqRef = useRef(0);
+  const streamedChunkCountRef = useRef(0);
   const [streamingPreview, setStreamingPreview] =
     useState<StreamingPreviewState | null>(null);
   const activeArtifact = artifacts[artifacts.length - 1] || null;
@@ -121,6 +123,7 @@ export default function LearnerTokuiBlock({
       streamRequestSeqRef.current = requestSeq;
       setLoading(true);
       setError('');
+      streamedChunkCountRef.current = 0;
       setStreamingPreview({
         streamKey: `${outlineBid}:${Date.now()}:${requestSeq}`,
         chunks: [],
@@ -139,6 +142,7 @@ export default function LearnerTokuiBlock({
         const handleEvent = (event: LearnerTokuiStreamEvent) => {
           if (requestSeq !== streamRequestSeqRef.current) return;
           if (event.type === 'chunk' && event.tokui) {
+            streamedChunkCountRef.current += 1;
             setStreamingPreview(previous => ({
               streamKey:
                 previous?.streamKey || `${outlineBid}:${Date.now()}:${requestSeq}`,
@@ -159,6 +163,7 @@ export default function LearnerTokuiBlock({
             return;
           }
           if (event.type === 'reset') {
+            streamedChunkCountRef.current = 0;
             setStreamingPreview({
               streamKey: `${outlineBid}:${Date.now()}:${requestSeq}:repair`,
               chunks: [],
@@ -183,6 +188,36 @@ export default function LearnerTokuiBlock({
 
           const result = event.artifact as LearnerTokuiArtifact;
           const nextArtifacts = artifactListFromResult(result);
+          const hasValidatedFinal =
+            result?.validation_status === 'validated' ||
+            nextArtifacts.some(
+              item =>
+                item.validation_status === 'validated' &&
+                (!result?.tokui_artifact_bid ||
+                  item.tokui_artifact_bid === result.tokui_artifact_bid),
+            );
+          if (!hasValidatedFinal && streamedChunkCountRef.current > 0) {
+            const message =
+              result?.fallback_text || t('module.chat.tokuiLoadFailed');
+            setArtifacts(previous => {
+              const validatedChain = nextArtifacts.filter(isValidatedArtifact);
+              if (validatedChain.length) return validatedChain;
+              return retry ? previous.filter(isValidatedArtifact) : previous;
+            });
+            setStreamingPreview(previous =>
+              previous
+                ? {
+                    ...previous,
+                    complete: true,
+                    status: 'final_failed',
+                    errorMessage: message,
+                  }
+                : null,
+            );
+            setError(message);
+            finish(result);
+            return;
+          }
           setArtifacts(previous => {
             if (
               retry &&
@@ -471,6 +506,28 @@ export default function LearnerTokuiBlock({
                   chunks={streamingPreview.chunks}
                   complete={streamingPreview.complete}
                 />
+                {streamingPreview.status === 'final_failed' ? (
+                  <div className='mt-3 space-y-2 rounded-md border border-[var(--border)] bg-[var(--muted)] p-3'>
+                    <p className='text-xs leading-5 text-[var(--muted-foreground)]'>
+                      {streamingPreview.errorMessage ||
+                        t('module.chat.tokuiLoadFailed')}
+                    </p>
+                    <Button
+                      type='button'
+                      size='sm'
+                      variant='outline'
+                      disabled={loading}
+                      onClick={() => void loadArtifact(true)}
+                    >
+                      {loading ? (
+                        <Loader2 className='h-4 w-4 animate-spin' />
+                      ) : (
+                        <RefreshCw className='h-4 w-4' />
+                      )}
+                      {t('module.chat.tokuiRetry')}
+                    </Button>
+                  </div>
+                ) : null}
               </div>
             ) : null}
             {saving ? (

@@ -251,9 +251,41 @@ def normalize_interaction_schema(value: Any) -> list[dict[str, Any]]:
     return normalized
 
 
+def normalize_generated_tokui_dsl(dsl: str) -> str:
+    normalized = str(dsl or "").strip()
+
+    def replace_heading_container(match: re.Match[str]) -> str:
+        content = (match.group(2) or "").strip()
+        if not content:
+            return ""
+        return f"[h2 {content}]"
+
+    normalized = re.sub(
+        r"\[heading([^\]]*)\](.*?)\[/heading\]",
+        replace_heading_container,
+        normalized,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    normalized = re.sub(
+        r"\[heading\s+([^\]]+)\]",
+        lambda match: f"[h2 {match.group(1).strip()}]",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    normalized = re.sub(
+        r"(\[p[^\]]+\])\s*\[/p\]",
+        r"\1",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    return normalized
+
+
 def build_generation_payload(raw_text: str) -> dict[str, Any]:
     parsed = extract_json_object(raw_text)
-    dsl = str(parsed.get("dsl") or parsed.get("tokui_dsl") or "").strip()
+    dsl = normalize_generated_tokui_dsl(
+        str(parsed.get("dsl") or parsed.get("tokui_dsl") or "")
+    )
     interaction_schema = normalize_interaction_schema(parsed.get("interaction_schema"))
     media_refs = parsed.get("media_refs")
     if not isinstance(media_refs, list):

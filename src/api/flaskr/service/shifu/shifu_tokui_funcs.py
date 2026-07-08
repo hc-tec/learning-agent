@@ -544,6 +544,14 @@ Required JSON shape:
 Rules:
 - Do not explain outside JSON.
 - Use TokUI DSL only in the dsl field.
+- Use only supported TokUI teaching tags for common lesson structure:
+  `[card]`, `[p]`, `[h1]` to `[h6]`, `[callout]`, `[list]`, `[item]`,
+  `[row]`, `[col]`, `[img]`, `[video]`, `[input]`, and `[btn]`.
+  Never generate `[heading]`, `[section]`, `[submit]`, or `[media]` tags.
+  For section titles use self-closing headings such as `[h2 二、我国铁路四大核心类型]`.
+  For muted placeholder text use leaf paragraph syntax such as
+  `[p v:muted 素材待提供：四类铁路实景对比短片]`; do not append `[/p]`
+  to a leaf paragraph.
 - Use real TokUI form syntax for learner controls. For text/number answers,
   write inputs as `[input n:"field_id" l:"field label" t:text req]` or
   `[input n:"field_id" l:"field label" t:number req]`, where `n` exactly

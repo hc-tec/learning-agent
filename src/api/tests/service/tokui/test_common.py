@@ -2,6 +2,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from flaskr.service.tokui.common import (
+    build_generation_payload,
+    normalize_generated_tokui_dsl,
     normalize_interaction_points,
     normalize_interaction_schema,
     normalize_material_refs,
@@ -415,6 +417,20 @@ def test_stream_extractor_emits_dsl_value_across_json_chunks():
     assert "".join(extractor.feed(chunk) for chunk in chunks) == (
         '[card tt:"标题"]第一行\n第二行[/card]'
     )
+
+
+def test_normalize_generated_tokui_dsl_repairs_common_llm_aliases():
+    assert normalize_generated_tokui_dsl(
+        "[card][heading]铁路分类[/heading][p v:muted 素材待提供：对比图][/p][/card]"
+    ) == "[card][h2 铁路分类][p v:muted 素材待提供：对比图][/card]"
+
+
+def test_build_generation_payload_normalizes_dsl_before_validation():
+    payload = build_generation_payload(
+        '{"dsl":"[card][heading]标题[/heading][/card]","interaction_schema":[]}'
+    )
+
+    assert payload["dsl"] == "[card][h2 标题][/card]"
 
 
 def test_artifact_chain_keeps_latest_failed_fallback_without_old_failures():

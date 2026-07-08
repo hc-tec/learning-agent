@@ -75,6 +75,40 @@ describe('LearnerTokuiBlock continuation flow', () => {
     jest.clearAllMocks();
   });
 
+  it('keeps streamed preview visible when the final artifact fails validation', async () => {
+    mockedStreamLearnerTokui.mockImplementationOnce(({ onEvent, onDone }) => {
+      Promise.resolve().then(() => {
+        onEvent({
+          type: 'chunk',
+          tokui: '<section><p>先流式展示的讲解</p></section>',
+        });
+        onEvent({
+          type: 'final',
+          artifact: {
+            enabled: true,
+            tokui_artifact_bid: 'artifact-failed',
+            validation_status: 'failed',
+            fallback_text: '当前互动讲解暂时生成失败。',
+          },
+        });
+        onDone?.();
+      });
+      return { close: jest.fn() };
+    });
+
+    render(
+      <LearnerTokuiBlock shifuBid='shifu-1' outlineBid='outline-1' />,
+    );
+
+    expect(await screen.findByText('先流式展示的讲解')).toBeInTheDocument();
+    expect(
+      await screen.findByText('当前互动讲解暂时生成失败。'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'module.chat.tokuiRetry' }),
+    ).toBeInTheDocument();
+  });
+
   it('keeps submitted content visible while appending continuation output', async () => {
     let resolveRetry:
       | ((value: {
