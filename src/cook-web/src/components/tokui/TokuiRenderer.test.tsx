@@ -67,6 +67,27 @@ describe('TokuiRenderer response submission', () => {
     expect(container).toHaveTextContent('先用文字解释四类铁路为什么要区分。');
   });
 
+  it('annotates valid TokUI tables so CSS can render comparison cards with labels', () => {
+    const { container } = render(
+      <TokuiRenderer
+        dsl={`
+          <table class="tokui-table">
+            <thead><tr><th>类型</th><th>速度</th><th>功能</th></tr></thead>
+            <tr data-tokui-tag="tr"><td>高速铁路</td><td>250-350 km/h</td><td>长途客运</td></tr>
+            <tr data-tokui-tag="tr"><td>城际铁路</td><td>100-200 km/h</td><td>通勤</td></tr>
+            <tr data-tokui-tag="tr"><td>重载铁路</td><td>80-120 km/h</td><td>大宗货运</td></tr>
+          </table>
+        `}
+      />,
+    );
+
+    const table = container.querySelector('.tokui-table') as HTMLElement;
+    const firstDataCell = container.querySelectorAll('td')[1] as HTMLElement;
+
+    expect(table.dataset.tokuiVisual).toBe('comparison');
+    expect(firstDataCell.dataset.tokuiCol).toBe('速度');
+  });
+
   it('submits form values when TokUI renders a type button submit control', () => {
     const handleSubmit = jest.fn();
     const { container } = render(

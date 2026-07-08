@@ -234,6 +234,32 @@ const normalizeRenderedFields = (root: HTMLDivElement) => {
   });
 };
 
+const annotateRenderedTables = (root: HTMLDivElement) => {
+  root
+    .querySelectorAll<HTMLTableElement>('.tokui-table, table')
+    .forEach(table => {
+      const headers = Array.from(table.querySelectorAll('thead th'))
+        .map(header => header.textContent?.trim() || '')
+        .filter(Boolean);
+      const rows = Array.from(
+        table.querySelectorAll<HTMLTableRowElement>('tr[data-tokui-tag="tr"]'),
+      );
+      if (headers.length >= 3 && rows.length >= 3 && rows.length <= 6) {
+        table.dataset.tokuiVisual = 'comparison';
+      }
+      rows.forEach(row => {
+        Array.from(row.querySelectorAll<HTMLTableCellElement>('td')).forEach(
+          (cell, index) => {
+            const header = headers[index] || '';
+            if (header) {
+              cell.dataset.tokuiCol = header;
+            }
+          },
+        );
+      });
+    });
+};
+
 const findFieldElements = (
   root: HTMLDivElement,
   fieldId: string,
@@ -527,6 +553,7 @@ export default function TokuiRenderer({
       }
     }
     ui.render(normalizeLearnerTokuiDsl(dsl));
+    annotateRenderedTables(root);
     ensureInteractionFieldNames(root, latestRenderState.interactionSchema);
     ensureSchemaFallbackControls(root, latestRenderState.interactionSchema);
     normalizeRenderedFields(root);
@@ -546,6 +573,7 @@ export default function TokuiRenderer({
   useLayoutEffect(() => {
     const root = rootRef.current;
     if (!root || !dsl) return;
+    annotateRenderedTables(root);
     ensureInteractionFieldNames(root, interactionSchema);
     ensureSchemaFallbackControls(root, interactionSchema);
     applySubmittedResponses(root, submittedResponses);
