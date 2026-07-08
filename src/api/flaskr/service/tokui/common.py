@@ -13,6 +13,41 @@ TOKUI_STATUS_FALLBACK = "fallback"
 
 _TOKUI_TEXT_NEEDS_QUOTES_RE = re.compile(r"[\[\]:]")
 
+_FIELD_TYPE_ALIASES = {
+    "text": "short_text",
+    "textarea": "short_text",
+    "short": "short_text",
+    "short_text": "short_text",
+    "choice": "single_choice",
+    "radio": "single_choice",
+    "single": "single_choice",
+    "single_choice": "single_choice",
+    "select": "single_choice",
+    "checkbox": "multi_choice",
+    "multi": "multi_choice",
+    "multiple": "multi_choice",
+    "multiple_choice": "multi_choice",
+    "multi_choice": "multi_choice",
+    "boolean": "true_false",
+    "bool": "true_false",
+    "truefalse": "true_false",
+    "true_false": "true_false",
+    "number": "number",
+}
+
+_DEFAULT_VALUE_SHAPES = {
+    "short_text": "string",
+    "single_choice": "string",
+    "multi_choice": "string_array",
+    "true_false": "boolean",
+    "number": "number",
+}
+
+_TRUE_FALSE_OPTIONS = [
+    {"value": "true", "label": "对"},
+    {"value": "false", "label": "错"},
+]
+
 
 def _quote_tokui_text_content(value: str) -> str:
     text = str(value or "").strip()
@@ -181,6 +216,7 @@ def normalize_interaction_points(value: Any) -> list[dict[str, Any]]:
         response_schema = item.get("response_schema")
         if not isinstance(response_schema, dict):
             response_schema = {}
+        response_schema = normalize_response_schema(response_schema) if response_schema else {}
         blocking = bool(item.get("blocking", item.get("blocking_behavior", False)))
         continue_on_submit_value = item.get("continue_on_submit")
         continue_on_submit = (
@@ -225,6 +261,63 @@ def schema_hash(interaction_schema: Any) -> str:
     return stable_hash(interaction_schema if isinstance(interaction_schema, list) else [])
 
 
+def normalize_field_type(value: Any) -> str:
+    raw = str(value or "short_text").strip().lower().replace("-", "_")
+    return _FIELD_TYPE_ALIASES.get(raw, raw or "short_text")
+
+
+def normalize_schema_options(value: Any) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    normalized: list[dict[str, str]] = []
+    for index, item in enumerate(value):
+        if isinstance(item, str):
+            option_value = item.strip()
+            option_label = option_value
+        elif isinstance(item, dict):
+            option_value = str(
+                item.get("value")
+                or item.get("v")
+                or item.get("id")
+                or item.get("key")
+                or f"option_{index + 1}"
+            ).strip()
+            option_label = str(
+                item.get("label")
+                or item.get("tx")
+                or item.get("text")
+                or item.get("name")
+                or option_value
+            ).strip()
+        else:
+            continue
+        if not option_value and not option_label:
+            continue
+        if not option_value:
+            option_value = option_label
+        if not option_label:
+            option_label = option_value
+        normalized.append({"value": option_value, "label": option_label})
+    return normalized
+
+
+def normalize_response_schema(value: Any) -> dict[str, Any]:
+    raw = value if isinstance(value, dict) else {}
+    field_type = normalize_field_type(raw.get("field_type") or raw.get("type"))
+    options = normalize_schema_options(raw.get("options") or raw.get("choices"))
+    if field_type == "true_false" and not options:
+        options = list(_TRUE_FALSE_OPTIONS)
+    normalized: dict[str, Any] = {
+        "field_type": field_type,
+        "value_shape": str(
+            raw.get("value_shape") or _DEFAULT_VALUE_SHAPES.get(field_type, "string")
+        ),
+    }
+    if options:
+        normalized["options"] = options
+    return normalized
+
+
 def extract_json_object(text: str) -> dict[str, Any]:
     normalized = str(text or "").strip()
     if not normalized:
@@ -266,19 +359,21 @@ def normalize_interaction_schema(value: Any) -> list[dict[str, Any]]:
             if continue_on_submit_value is not None
             else blocking
         )
-        normalized.append(
-            {
-                "field_id": field_id,
-                "field_type": str(item.get("field_type") or item.get("type") or "text"),
-                "label": str(item.get("label") or item.get("field_label") or ""),
-                "required": bool(item.get("required", False)),
-                "semantic_role": str(item.get("semantic_role") or ""),
-                "value_shape": str(item.get("value_shape") or ""),
-                "blocking": blocking,
-                "continue_on_submit": continue_on_submit,
-                "continuation_hint": str(item.get("continuation_hint") or ""),
-            }
-        )
+        response_schema = normalize_response_schema(item)
+        normalized_item = {
+            "field_id": field_id,
+            "field_type": response_schema["field_type"],
+            "label": str(item.get("label") or item.get("field_label") or ""),
+            "required": bool(item.get("required", False)),
+            "semantic_role": str(item.get("semantic_role") or ""),
+            "value_shape": response_schema["value_shape"],
+            "blocking": blocking,
+            "continue_on_submit": continue_on_submit,
+            "continuation_hint": str(item.get("continuation_hint") or ""),
+        }
+        if response_schema.get("options"):
+            normalized_item["options"] = response_schema["options"]
+        normalized.append(normalized_item)
     return normalized
 
 

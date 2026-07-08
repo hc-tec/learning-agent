@@ -50,6 +50,7 @@
       "addInteractionPoint": "添加互动点",
       "blockingInteractionLabel": "阻塞式：学生回答后再继续",
       "interactionContinuationPlaceholder": "回答后如何影响后续讲解，例如：根据学生是否能区分四类铁路，决定补充哪类案例",
+      "interactionOptionsPlaceholder": "每行一个选项，格式：value:显示文字。例如：heavy_haul:重载铁路",
       "interactionPointsHint": "一节课可以有多个输入和检查点",
       "interactionPointsTitle": "互动/检查点",
       "interactionPromptPlaceholder": "写清楚要问学生什么，以及这个问题在诊断什么",
@@ -93,7 +94,17 @@
       "responseTypeChoice": "选择",
       "responseTypeLabel": "回答类型",
       "responseTypeNumber": "数字",
+      "responseTypeNames": {
+        "multi_choice": "多选题",
+        "number": "数字",
+        "short_text": "简答题",
+        "single_choice": "单选题",
+        "true_false": "判断题"
+      },
+      "responseTypeMultiChoice": "多选题",
+      "responseTypeSingleChoice": "单选题",
       "responseTypeText": "文本",
+      "responseTypeTrueFalse": "判断题",
       "saveSuccess": "TokUI 模板已保存",
       "subtitle": "像写授课提示词一样教 AI 怎么讲，学习端再按学生上下文动态生成 TokUI",
       "title": "TokUI 教学指导"

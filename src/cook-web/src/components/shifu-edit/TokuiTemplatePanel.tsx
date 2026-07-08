@@ -57,12 +57,23 @@ type TokuiMaterialPlacement = {
   url: string;
 };
 
+type TokuiResponseOption = {
+  value: string;
+  label: string;
+};
+
+type TokuiResponseSchema = {
+  field_type?: string;
+  value_shape?: string;
+  options?: TokuiResponseOption[];
+};
+
 type TokuiInteractionPoint = {
   interaction_id: string;
   position: string;
   kind: string;
   prompt: string;
-  response_schema: Record<string, unknown>;
+  response_schema: TokuiResponseSchema;
   blocking: boolean;
   continue_on_submit: boolean;
   downstream_context_policy: string;
@@ -107,6 +118,121 @@ type TokuiTemplatePanelProps = {
 };
 
 type InteractionMode = 'normal' | 'checkpoint';
+
+const fieldTypeAliases: Record<string, string> = {
+  text: 'short_text',
+  textarea: 'short_text',
+  short: 'short_text',
+  short_text: 'short_text',
+  choice: 'single_choice',
+  radio: 'single_choice',
+  single: 'single_choice',
+  single_choice: 'single_choice',
+  select: 'single_choice',
+  checkbox: 'multi_choice',
+  multi: 'multi_choice',
+  multiple: 'multi_choice',
+  multi_choice: 'multi_choice',
+  multiple_choice: 'multi_choice',
+  boolean: 'true_false',
+  bool: 'true_false',
+  truefalse: 'true_false',
+  true_false: 'true_false',
+  number: 'number',
+};
+
+const normalizeFieldType = (value: unknown) => {
+  const key = String(value || 'short_text')
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, '_');
+  return fieldTypeAliases[key] || key || 'short_text';
+};
+
+const defaultOptionsForFieldType = (
+  fieldType: string,
+): TokuiResponseOption[] =>
+  fieldType === 'true_false'
+    ? [
+        { value: 'true', label: '对' },
+        { value: 'false', label: '错' },
+      ]
+    : [];
+
+const normalizeResponseOptions = (value: unknown): TokuiResponseOption[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item, index) => {
+      if (typeof item === 'string') {
+        const optionValue = item.trim();
+        return optionValue ? { value: optionValue, label: optionValue } : null;
+      }
+      if (!item || typeof item !== 'object') return null;
+      const raw = item as Record<string, unknown>;
+      const optionValue = String(
+        raw.value || raw.v || raw.id || raw.key || `option_${index + 1}`,
+      ).trim();
+      const optionLabel = String(
+        raw.label || raw.tx || raw.text || raw.name || optionValue,
+      ).trim();
+      if (!optionValue && !optionLabel) return null;
+      return {
+        value: optionValue || optionLabel,
+        label: optionLabel || optionValue,
+      };
+    })
+    .filter((item): item is TokuiResponseOption => Boolean(item));
+};
+
+const normalizeResponseSchema = (value: unknown): TokuiResponseSchema => {
+  const raw =
+    value && typeof value === 'object'
+      ? (value as Record<string, unknown>)
+      : {};
+  const fieldType = normalizeFieldType(raw.field_type || raw.type);
+  const parsedOptions = normalizeResponseOptions(raw.options || raw.choices);
+  const options = parsedOptions.length
+    ? parsedOptions
+    : defaultOptionsForFieldType(fieldType);
+  return {
+    field_type: fieldType,
+    value_shape:
+      String(raw.value_shape || '').trim() ||
+      (fieldType === 'multi_choice'
+        ? 'string_array'
+        : fieldType === 'true_false'
+          ? 'boolean'
+          : fieldType === 'number'
+            ? 'number'
+            : 'string'),
+    ...(options?.length ? { options } : {}),
+  };
+};
+
+const optionsToText = (options?: TokuiResponseOption[]) =>
+  (options || []).map(option => `${option.value}:${option.label}`).join('\n');
+
+const optionsFromText = (value: string): TokuiResponseOption[] =>
+  value
+    .split(/\r?\n/)
+    .map((line, index) => {
+      const trimmed = line.trim();
+      if (!trimmed) return null;
+      const separator = trimmed.indexOf(':');
+      if (separator < 0) {
+        return { value: `option_${index + 1}`, label: trimmed };
+      }
+      const optionValue = trimmed.slice(0, separator).trim();
+      const optionLabel = trimmed.slice(separator + 1).trim();
+      return {
+        value: optionValue || `option_${index + 1}`,
+        label: optionLabel || optionValue || trimmed,
+      };
+    })
+    .filter((item): item is TokuiResponseOption => Boolean(item));
+
+const fieldTypeNeedsOptions = (fieldType: string) =>
+  ['single_choice', 'multi_choice', 'true_false'].includes(fieldType);
 
 const normalizeMediaRefs = (value: unknown): TokuiMediaRef[] => {
   if (!Array.isArray(value)) return [];
@@ -191,8 +317,10 @@ const normalizeInteractionPoints = (
       if (!item || typeof item !== 'object') return null;
       const raw = item as Record<string, unknown>;
       const responseSchema =
-        raw.response_schema && typeof raw.response_schema === 'object'
-          ? (raw.response_schema as Record<string, unknown>)
+        raw.response_schema &&
+        typeof raw.response_schema === 'object' &&
+        Object.keys(raw.response_schema).length
+          ? normalizeResponseSchema(raw.response_schema)
           : {};
       const blocking = Boolean(raw.blocking ?? raw.blocking_behavior);
       return {
@@ -305,7 +433,7 @@ export default function TokuiTemplatePanel({
       position: '',
       kind: 'checkpoint',
       prompt: '',
-      response_schema: { field_type: 'text' },
+      response_schema: normalizeResponseSchema({ field_type: 'short_text' }),
       blocking: true,
       continue_on_submit: true,
       downstream_context_policy: '',
@@ -455,7 +583,7 @@ export default function TokuiTemplatePanel({
       position: '',
       kind: 'checkpoint',
       prompt: '',
-      response_schema: { field_type: 'text' },
+      response_schema: normalizeResponseSchema({ field_type: 'short_text' }),
       blocking: true,
       continue_on_submit: true,
       downstream_context_policy: '',
@@ -695,6 +823,12 @@ export default function TokuiTemplatePanel({
   };
 
   const disabled = readonly || !shifuBid || !outlineBid || loading;
+  const draftFieldType = normalizeFieldType(
+    draftInteractionPoint.response_schema.field_type,
+  );
+  const draftFieldOptions = normalizeResponseOptions(
+    draftInteractionPoint.response_schema.options,
+  );
 
   return (
     <section className='border-t border-slate-200 bg-white px-4 py-4'>
@@ -1021,28 +1155,36 @@ export default function TokuiTemplatePanel({
               <select
                 className='rounded-md border border-slate-300 px-2 py-2 text-sm'
                 disabled={disabled}
-                value={String(
-                  draftInteractionPoint.response_schema.field_type || 'text',
-                )}
+                value={draftFieldType}
                 aria-label={t('creationArea.tokui.responseTypeLabel')}
-                onChange={event =>
+                onChange={event => {
+                  const nextFieldType = normalizeFieldType(event.target.value);
                   setDraftInteractionPoint(prev => ({
                     ...prev,
-                    response_schema: {
+                    response_schema: normalizeResponseSchema({
                       ...prev.response_schema,
-                      field_type: event.target.value,
-                    },
-                  }))
-                }
+                      field_type: nextFieldType,
+                      options: fieldTypeNeedsOptions(nextFieldType)
+                        ? normalizeResponseOptions(prev.response_schema.options)
+                            .length
+                          ? prev.response_schema.options
+                          : defaultOptionsForFieldType(nextFieldType)
+                        : undefined,
+                    }),
+                  }));
+                }}
               >
-                <option value='text'>
+                <option value='short_text'>
                   {t('creationArea.tokui.responseTypeText')}
                 </option>
-                <option value='choice'>
-                  {t('creationArea.tokui.responseTypeChoice')}
+                <option value='single_choice'>
+                  {t('creationArea.tokui.responseTypeSingleChoice')}
                 </option>
-                <option value='number'>
-                  {t('creationArea.tokui.responseTypeNumber')}
+                <option value='multi_choice'>
+                  {t('creationArea.tokui.responseTypeMultiChoice')}
+                </option>
+                <option value='true_false'>
+                  {t('creationArea.tokui.responseTypeTrueFalse')}
                 </option>
               </select>
               <label className='flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700'>
@@ -1074,6 +1216,30 @@ export default function TokuiTemplatePanel({
                   }))
                 }
               />
+              {fieldTypeNeedsOptions(draftFieldType) ? (
+                <textarea
+                  className='min-h-20 rounded-md border border-slate-300 px-3 py-2 text-sm sm:col-span-2'
+                  disabled={disabled || draftFieldType === 'true_false'}
+                  value={optionsToText(
+                    draftFieldType === 'true_false'
+                      ? defaultOptionsForFieldType(draftFieldType)
+                      : draftFieldOptions,
+                  )}
+                  placeholder={t(
+                    'creationArea.tokui.interactionOptionsPlaceholder',
+                  )}
+                  onChange={event =>
+                    setDraftInteractionPoint(prev => ({
+                      ...prev,
+                      response_schema: normalizeResponseSchema({
+                        ...prev.response_schema,
+                        field_type: draftFieldType,
+                        options: optionsFromText(event.target.value),
+                      }),
+                    }))
+                  }
+                />
+              ) : null}
               <textarea
                 className='min-h-20 rounded-md border border-slate-300 px-3 py-2 text-sm sm:col-span-2'
                 disabled={disabled}
@@ -1121,6 +1287,12 @@ export default function TokuiTemplatePanel({
                           {point.position}. {point.prompt}
                         </div>
                         <div className='mt-1 line-clamp-2 text-xs text-slate-500'>
+                          {t(
+                            `creationArea.tokui.responseTypeNames.${normalizeFieldType(
+                              point.response_schema.field_type,
+                            )}`,
+                          )}
+                          {' · '}
                           {point.blocking
                             ? t('creationArea.tokui.blockingInteractionLabel')
                             : t(

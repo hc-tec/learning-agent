@@ -50,6 +50,7 @@
       "addInteractionPoint": "Add interaction point",
       "blockingInteractionLabel": "Blocking: continue after the learner answers",
       "interactionContinuationPlaceholder": "How the answer changes later teaching, for example: choose which railway type case to reinforce",
+      "interactionOptionsPlaceholder": "One option per line, format: value:Display text. Example: heavy_haul:Heavy-haul railway",
       "interactionPointsHint": "One lesson can have multiple inputs and checks",
       "interactionPointsTitle": "Interactions/checkpoints",
       "interactionPromptPlaceholder": "Describe what to ask and what the question diagnoses",
@@ -93,7 +94,17 @@
       "responseTypeChoice": "Choice",
       "responseTypeLabel": "Response type",
       "responseTypeNumber": "Number",
+      "responseTypeNames": {
+        "multi_choice": "Multiple choice",
+        "number": "Number",
+        "short_text": "Short answer",
+        "single_choice": "Single choice",
+        "true_false": "True/false"
+      },
+      "responseTypeMultiChoice": "Multiple choice",
+      "responseTypeSingleChoice": "Single choice",
       "responseTypeText": "Text",
+      "responseTypeTrueFalse": "True/false",
       "saveSuccess": "TokUI template saved",
       "subtitle": "Teach the AI how to teach, then let learner-side TokUI render dynamically from context.",
       "title": "TokUI teaching guide"

@@ -46,7 +46,7 @@ def test_normalize_interaction_schema_preserves_blocking_checkpoint_fields():
     assert normalized == [
         {
             "field_id": "first_understanding",
-            "field_type": "text",
+            "field_type": "short_text",
             "label": "Say it in your own words",
             "required": True,
             "semantic_role": "check_understanding",
@@ -65,6 +65,49 @@ def test_normalize_interaction_schema_defaults_continuation_to_blocking():
 
     assert normalized[0]["continue_on_submit"] is True
     assert normalized[0]["continuation_hint"] == ""
+
+
+def test_normalize_interaction_schema_canonicalizes_rich_question_types():
+    normalized = normalize_interaction_schema(
+        [
+            {
+                "field_id": "type_check",
+                "field_type": "radio",
+                "label": "属于哪类铁路？",
+                "options": [
+                    {"value": "high_speed", "label": "高速铁路"},
+                    {"value": "heavy_haul", "label": "重载铁路"},
+                ],
+            },
+            {
+                "field_id": "feature_check",
+                "field_type": "checkbox",
+                "choices": ["客运", "货运"],
+            },
+            {
+                "field_id": "judgment_check",
+                "field_type": "boolean",
+            },
+        ]
+    )
+
+    assert normalized[0]["field_type"] == "single_choice"
+    assert normalized[0]["options"] == [
+        {"value": "high_speed", "label": "高速铁路"},
+        {"value": "heavy_haul", "label": "重载铁路"},
+    ]
+    assert normalized[1]["field_type"] == "multi_choice"
+    assert normalized[1]["value_shape"] == "string_array"
+    assert normalized[1]["options"] == [
+        {"value": "客运", "label": "客运"},
+        {"value": "货运", "label": "货运"},
+    ]
+    assert normalized[2]["field_type"] == "true_false"
+    assert normalized[2]["value_shape"] == "boolean"
+    assert normalized[2]["options"] == [
+        {"value": "true", "label": "对"},
+        {"value": "false", "label": "错"},
+    ]
 
 
 def test_normalize_media_refs_keeps_stable_resource_fields():
@@ -160,7 +203,7 @@ def test_normalize_interaction_points_preserves_blocking_dependency_design():
             "insertion_point": "讲完重载铁路定义后立即插入",
             "kind": "feynman_check",
             "prompt": "万吨列车制动健康预测属于哪类铁路？",
-            "response_schema": {"field_type": "text"},
+            "response_schema": {"field_type": "short_text", "value_shape": "string"},
             "blocking": True,
             "continue_on_submit": True,
             "downstream_context_policy": "",
@@ -257,8 +300,17 @@ def test_generation_prompt_includes_material_and_interaction_design_contracts():
     assert 'Attribute values containing spaces, commas, pipes, semicolons' in prompt
     assert "中国四类铁路核心参数对比图" in prompt
     assert "万吨列车制动健康预测" in prompt
-    assert '[input n:"field_id" l:"field label" t:text req]' in prompt
+    assert "short_text" in prompt
+    assert "single_choice" in prompt
+    assert "multi_choice" in prompt
+    assert "true_false" in prompt
+    assert '[textarea n:"field_id" l:"field label"' in prompt
+    assert '[radio n:"field_id" l:"field label" v:vertical opt:"a:选项A;b:选项B"]' in prompt
+    assert '[checkbox n:"field_id" l:"field label" v:vertical opt:"a:选项A;b:选项B"]' in prompt
     assert '[btn tx:"提交" v:primary' in prompt
+    assert "Presentation quality matters" in prompt
+    assert "[table]" in prompt
+    assert "[steps]" in prompt
     assert "Do not generate `[submit]`" in prompt
     assert '[img s:"provided_url" tt:"title"' in prompt
     assert '[video s:"provided_url"]' in prompt

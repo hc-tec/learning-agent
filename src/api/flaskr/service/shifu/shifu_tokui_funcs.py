@@ -78,6 +78,15 @@ TokUI DSL best practices from the parser/docs:
   rather than a giant `tx:` value.
 - Use supported media tags directly: `[img s:"provided_url" tt:"title"]` and
   `[video s:"provided_url" controls]`; never invent `[media]`.
+- Use supported teaching layout intentionally: `[row]`/`[col]` for comparisons,
+  `[table]`/`[thead]`/`[tbody]`/`[tr]` for aligned facts, `[steps]`/`[step]`
+  for sequences, `[callout]` for key judgments, and `[card]` for a focused
+  teaching block. Do not invent unknown visual tags.
+- For learner questions, use supported form controls:
+  `[textarea n:field_id l:"问题" ph:"写下你的理解"][/textarea]`,
+  `[radio n:field_id l:"问题" v:vertical opt:"a:选项A;b:选项B"]`,
+  `[checkbox n:field_id l:"问题" v:vertical opt:"a:选项A;b:选项B"]`, and
+  `[radio n:field_id l:"判断题" v:vertical opt:"true:对;false:错"]`.
 """.strip()
 
 
@@ -571,11 +580,14 @@ Required JSON shape:
   "interaction_schema": [
     {{
       "field_id": "stable_semantic_id",
-      "field_type": "choice|text|number|boolean|submit",
+      "field_type": "short_text|single_choice|multi_choice|true_false",
       "label": "field label",
       "required": false,
       "semantic_role": "check_understanding",
       "value_shape": "string",
+      "options": [
+        {{"value": "a", "label": "option label"}}
+      ],
       "blocking": false,
       "continue_on_submit": false,
       "continuation_hint": ""
@@ -592,21 +604,38 @@ Rules:
   immediately.
 - Use only supported TokUI teaching tags for common lesson structure:
   `[card]`, `[p]`, `[h1]` to `[h6]`, `[callout]`, `[list]`, `[item]`,
-  `[row]`, `[col]`, `[img]`, `[video]`, `[input]`, and `[btn]`.
+  `[row]`, `[col]`, `[table]`, `[thead]`, `[tbody]`, `[tr]`, `[desc]`,
+  `[steps]`, `[step]`, `[tag]`, `[badge]`, `[img]`, `[video]`, `[form]`,
+  `[input]`, `[textarea]`, `[radio]`, `[checkbox]`, `[select]`, `[opt]`,
+  `[btngroup]`, and `[btn]`.
   Never generate `[heading]`, `[section]`, `[submit]`, or `[media]` tags.
   For section titles use self-closing headings such as `[h2 二、我国铁路四大核心类型]`.
   For muted placeholder text use leaf paragraph syntax such as
   `[p v:muted 素材待提供：四类铁路实景对比短片]`; do not append `[/p]`
   to a leaf paragraph.
-- Use real TokUI form syntax for learner controls. For text/number answers,
-  write inputs as `[input n:"field_id" l:"field label" t:text req]` or
-  `[input n:"field_id" l:"field label" t:number req]`, where `n` exactly
-  matches the interaction_schema `field_id`. Use `[btn tx:"提交" v:primary
-  act:submit]` for the submit button. Do not generate `[submit]`, `field_id=`,
-  `field_type=`, `label=`, or `required=true` attributes in the DSL; those names
-  belong only in JSON interaction_schema.
+- Use real TokUI form syntax for learner controls, where `n` exactly matches
+  interaction_schema `field_id`:
+  - short_text: `[textarea n:"field_id" l:"field label" ph:"写下你的理解" req][/textarea]`
+  - single_choice: `[radio n:"field_id" l:"field label" v:vertical opt:"a:选项A;b:选项B"]`
+  - multi_choice: `[checkbox n:"field_id" l:"field label" v:vertical opt:"a:选项A;b:选项B"]`
+  - true_false: `[radio n:"field_id" l:"field label" v:vertical opt:"true:对;false:错"]`
+  Use `[btn tx:"提交" v:primary act:submit]` for the submit button.
+  Do not generate `[submit]`, `field_id=`, `field_type=`, `label=`, or
+  `required=true` attributes in the DSL; those names belong only in JSON
+  interaction_schema.
 - Include interaction_schema for every learner-fillable control.
+- Use canonical interaction_schema field_type values: `short_text`,
+  `single_choice`, `multi_choice`, and `true_false`. `number` is only for
+  legacy controlled E2E data, not new teaching questions.
+- For single_choice and multi_choice, include an `options` array with stable
+  string values and learner-readable labels. For true_false, use values
+  `"true"` and `"false"` with labels matching the lesson language.
 - Reuse stable field_id names derived from the learning task.
+- Presentation quality matters. Do not output a wall of plain `[p]` nodes when
+  the content has structure. Use callouts for key judgments, tables or
+  row/col cards for comparisons, steps for sequences, short lists for criteria,
+  and a clear question/feedback card around each checkpoint. Keep the layout
+  readable on mobile and avoid decorative complexity.
 - Treat teacher_intent as the learner outcome and prompt_template as the
   teacher's detailed teaching guide. The guide may contain teaching sequence,
   examples, misconceptions, checkpoint timing, feedback rules, and standards

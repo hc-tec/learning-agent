@@ -8,6 +8,7 @@ export type TokuiInteractionField = {
   field_id: string;
   field_type?: string;
   label?: string;
+  options?: Array<{ value: string; label: string }>;
   required?: boolean;
   blocking?: boolean;
   continue_on_submit?: boolean;
@@ -54,6 +55,36 @@ const TOKUI_TEXT_PLACEHOLDERS = new Set([
 
 const EMPTY_SUBMITTED_RESPONSES: TokuiResponseValue[] = [];
 
+const FIELD_TYPE_ALIASES: Record<string, string> = {
+  text: 'short_text',
+  textarea: 'short_text',
+  short: 'short_text',
+  short_text: 'short_text',
+  choice: 'single_choice',
+  radio: 'single_choice',
+  single: 'single_choice',
+  single_choice: 'single_choice',
+  select: 'single_choice',
+  checkbox: 'multi_choice',
+  multi: 'multi_choice',
+  multiple: 'multi_choice',
+  multiple_choice: 'multi_choice',
+  multi_choice: 'multi_choice',
+  boolean: 'true_false',
+  bool: 'true_false',
+  truefalse: 'true_false',
+  true_false: 'true_false',
+  number: 'number',
+};
+
+const normalizeFieldType = (value?: string) => {
+  const key = String(value || 'short_text')
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, '_');
+  return FIELD_TYPE_ALIASES[key] || key || 'short_text';
+};
+
 const cssAttributeEscape = (value: string) => value.replace(/["\\]/g, '\\$&');
 
 const tokuiAttrEscape = (value: string) =>
@@ -80,14 +111,10 @@ const normalizeLegacyTokuiInputTag = (match: string, attrs: string) => {
 
   const fieldType = readLegacyTokuiAttr(attrs, 'field_type') || 'text';
   const label = readLegacyTokuiAttr(attrs, 'label');
-  const required = /(?:\brequired\s*=\s*(?:"true"|'true'|true|1)|\brequired\b)/i.test(
-    attrs,
-  );
+  const required =
+    /(?:\brequired\s*=\s*(?:"true"|'true'|true|1)|\brequired\b)/i.test(attrs);
   const tokuiType = fieldType === 'number' ? 'number' : 'text';
-  const parts = [
-    `n:"${tokuiAttrEscape(fieldId)}"`,
-    `t:${tokuiType}`,
-  ];
+  const parts = [`n:"${tokuiAttrEscape(fieldId)}"`, `t:${tokuiType}`];
   if (label) {
     parts.push(`l:"${tokuiAttrEscape(label)}"`);
   }
@@ -98,8 +125,11 @@ const normalizeLegacyTokuiInputTag = (match: string, attrs: string) => {
 };
 
 const normalizeLegacyTokuiMediaTag = (attrs: string) => {
-  const mediaType = (readLegacyTokuiAttr(attrs, 'type') || 'image').toLowerCase();
-  const url = readLegacyTokuiAttr(attrs, 'url') || readLegacyTokuiAttr(attrs, 'src');
+  const mediaType = (
+    readLegacyTokuiAttr(attrs, 'type') || 'image'
+  ).toLowerCase();
+  const url =
+    readLegacyTokuiAttr(attrs, 'url') || readLegacyTokuiAttr(attrs, 'src');
   const title = readLegacyTokuiAttr(attrs, 'title') || '教学素材';
   if (!url) {
     return `[p v:muted 素材待提供：${tokuiAttrEscape(title)}]`;
@@ -112,20 +142,15 @@ const normalizeLegacyTokuiMediaTag = (attrs: string) => {
 
 export const normalizeLearnerTokuiDsl = (dsl: string) =>
   dsl
-    .replace(
-      /\[input\b([^\]]*)\]/gi,
-      (match, attrs) => normalizeLegacyTokuiInputTag(match, attrs),
+    .replace(/\[input\b([^\]]*)\]/gi, (match, attrs) =>
+      normalizeLegacyTokuiInputTag(match, attrs),
     )
-    .replace(
-      /\[submit\b([^\]]*)\/?\]/gi,
-      (_match, attrs) => {
-        const label = readLegacyTokuiAttr(attrs, 'label') || '提交';
-        return `[btn tx:"${tokuiAttrEscape(label)}" v:primary act:submit]`;
-      },
-    )
-    .replace(
-      /\[media\b([^\]]*)\/?\]/gi,
-      (_match, attrs) => normalizeLegacyTokuiMediaTag(attrs),
+    .replace(/\[submit\b([^\]]*)\/?\]/gi, (_match, attrs) => {
+      const label = readLegacyTokuiAttr(attrs, 'label') || '提交';
+      return `[btn tx:"${tokuiAttrEscape(label)}" v:primary act:submit]`;
+    })
+    .replace(/\[media\b([^\]]*)\/?\]/gi, (_match, attrs) =>
+      normalizeLegacyTokuiMediaTag(attrs),
     );
 
 const isFormField = (
@@ -186,7 +211,10 @@ const applySubmittedResponses = (
     const elements = findFieldElements(root, response.field_id);
     if (!elements.length) return;
     const value = response.value;
-    if (elements[0] instanceof HTMLInputElement && elements[0].type === 'checkbox') {
+    if (
+      elements[0] instanceof HTMLInputElement &&
+      elements[0].type === 'checkbox'
+    ) {
       const values = Array.isArray(value) ? value.map(String) : [];
       elements.forEach(element => {
         if (element instanceof HTMLInputElement) {
@@ -198,10 +226,17 @@ const applySubmittedResponses = (
       });
       return;
     }
-    if (elements[0] instanceof HTMLInputElement && elements[0].type === 'radio') {
+    if (
+      elements[0] instanceof HTMLInputElement &&
+      elements[0].type === 'radio'
+    ) {
       elements.forEach(element => {
         if (element instanceof HTMLInputElement) {
-          element.checked = element.value === valueToDisplayString(value);
+          const displayValue =
+            typeof value === 'boolean'
+              ? String(value)
+              : valueToDisplayString(value);
+          element.checked = element.value === displayValue;
         }
       });
       return;
@@ -213,6 +248,113 @@ const applySubmittedResponses = (
     }
     elements[0].value = displayValue;
   });
+};
+
+const normalizeOptionValue = (value: unknown) => String(value ?? '').trim();
+
+const optionListForField = (field: TokuiInteractionField) => {
+  const fieldType = normalizeFieldType(field.field_type);
+  if (fieldType === 'true_false') {
+    return [
+      { value: 'true', label: '对' },
+      { value: 'false', label: '错' },
+    ];
+  }
+  if (!Array.isArray(field.options)) return [];
+  return field.options
+    .map(option => ({
+      value: normalizeOptionValue(option.value),
+      label: String(option.label || option.value || '').trim(),
+    }))
+    .filter(option => option.value || option.label)
+    .map(option => ({
+      value: option.value || option.label,
+      label: option.label || option.value,
+    }));
+};
+
+const createFallbackControl = (
+  root: HTMLDivElement,
+  field: TokuiInteractionField,
+) => {
+  const doc = root.ownerDocument;
+  const fieldType = normalizeFieldType(field.field_type);
+  const wrapper = doc.createElement('div');
+  wrapper.className = 'tokui-schema-control';
+  const label = doc.createElement('label');
+  label.className = 'tokui-schema-control__label';
+  label.textContent = field.label || field.field_id;
+  wrapper.appendChild(label);
+
+  if (fieldType === 'single_choice' || fieldType === 'true_false') {
+    const group = doc.createElement('div');
+    group.className = 'tokui-schema-control__options';
+    optionListForField(field).forEach(option => {
+      const optionLabel = doc.createElement('label');
+      optionLabel.className = 'tokui-schema-control__option';
+      const input = doc.createElement('input');
+      input.type = 'radio';
+      input.name = field.field_id;
+      input.value = option.value;
+      input.required = Boolean(field.required);
+      optionLabel.appendChild(input);
+      optionLabel.append(` ${option.label}`);
+      group.appendChild(optionLabel);
+    });
+    wrapper.appendChild(group);
+    return wrapper;
+  }
+
+  if (fieldType === 'multi_choice') {
+    const group = doc.createElement('div');
+    group.className = 'tokui-schema-control__options';
+    optionListForField(field).forEach(option => {
+      const optionLabel = doc.createElement('label');
+      optionLabel.className = 'tokui-schema-control__option';
+      const input = doc.createElement('input');
+      input.type = 'checkbox';
+      input.name = field.field_id;
+      input.value = option.value;
+      optionLabel.appendChild(input);
+      optionLabel.append(` ${option.label}`);
+      group.appendChild(optionLabel);
+    });
+    wrapper.appendChild(group);
+    return wrapper;
+  }
+
+  const textarea = doc.createElement('textarea');
+  textarea.name = field.field_id;
+  textarea.required = Boolean(field.required);
+  textarea.placeholder = field.label || '请输入你的答案';
+  wrapper.appendChild(textarea);
+  return wrapper;
+};
+
+const ensureSchemaFallbackControls = (
+  root: HTMLDivElement,
+  interactionSchema: TokuiInteractionField[],
+) => {
+  const missingFields = interactionSchema.filter(
+    field =>
+      field.field_id && findFieldElements(root, field.field_id).length === 0,
+  );
+  if (!missingFields.length) return;
+  const doc = root.ownerDocument;
+  const form = doc.createElement('form');
+  form.className = 'tokui-schema-fallback';
+  form.dataset.tokuiTag = 'form';
+  missingFields.forEach(field => {
+    form.appendChild(createFallbackControl(root, field));
+  });
+  const button = doc.createElement('button');
+  button.type = 'submit';
+  button.className = 'tokui-btn tokui-schema-fallback__submit';
+  button.dataset.tokuiTag = 'btn';
+  button.dataset.tokuiAct = 'submit';
+  button.textContent = '提交';
+  form.appendChild(button);
+  root.appendChild(form);
 };
 
 const ensureInteractionFieldNames = (
@@ -257,6 +399,7 @@ const setReadOnlyState = (root: HTMLDivElement, readOnly: boolean) => {
 const readFieldValue = (root: HTMLDivElement, field: TokuiInteractionField) => {
   const elements = findFieldElements(root, field.field_id);
   if (!elements.length) return undefined;
+  const fieldType = normalizeFieldType(field.field_type);
   if (
     elements[0] instanceof HTMLInputElement &&
     elements[0].type === 'checkbox'
@@ -264,13 +407,24 @@ const readFieldValue = (root: HTMLDivElement, field: TokuiInteractionField) => {
     const checked = elements
       .filter(element => element instanceof HTMLInputElement && element.checked)
       .map(element => element.value || true);
-    return elements.length === 1 ? Boolean(elements[0].checked) : checked;
+    return fieldType === 'multi_choice' || elements.length > 1
+      ? checked
+      : Boolean(elements[0].checked);
   }
   if (elements[0] instanceof HTMLInputElement && elements[0].type === 'radio') {
     const checked = elements.find(
       element => element instanceof HTMLInputElement && element.checked,
     );
-    return checked?.value;
+    if (!checked) return undefined;
+    if (fieldType === 'true_false') {
+      return checked.value === 'true';
+    }
+    return checked.value;
+  }
+  if (fieldType === 'true_false') {
+    const value = elements[0].value;
+    if (value === 'true') return true;
+    if (value === 'false') return false;
   }
   return elements[0].value;
 };
@@ -312,6 +466,7 @@ export default function TokuiRenderer({
     }
     ui.render(normalizeLearnerTokuiDsl(dsl));
     ensureInteractionFieldNames(root, latestRenderState.interactionSchema);
+    ensureSchemaFallbackControls(root, latestRenderState.interactionSchema);
     normalizeRenderedFields(root);
     applySubmittedResponses(root, latestRenderState.submittedResponses);
     setReadOnlyState(root, latestRenderState.readOnly);
@@ -330,6 +485,7 @@ export default function TokuiRenderer({
     const root = rootRef.current;
     if (!root || !dsl) return;
     ensureInteractionFieldNames(root, interactionSchema);
+    ensureSchemaFallbackControls(root, interactionSchema);
     applySubmittedResponses(root, submittedResponses);
     setReadOnlyState(root, readOnly);
   }, [dsl, interactionSchema, readOnly, submittedResponses]);
@@ -339,7 +495,7 @@ export default function TokuiRenderer({
     const responses = interactionSchema
       .map(field => ({
         field_id: field.field_id,
-        field_type: field.field_type || 'text',
+        field_type: normalizeFieldType(field.field_type),
         value: readFieldValue(rootRef.current as HTMLDivElement, field),
       }))
       .filter(response => response.value !== undefined);
@@ -356,7 +512,7 @@ export default function TokuiRenderer({
     <div
       ref={rootRef}
       data-testid='tokui-renderer-root'
-      className={className}
+      className={['tokui-course-renderer', className].filter(Boolean).join(' ')}
       onSubmit={event => {
         event.preventDefault();
         submitResponses();
@@ -380,8 +536,7 @@ export default function TokuiRenderer({
           submitResponses();
         }
       }}
-    >
-    </div>
+    ></div>
   );
 }
 
@@ -445,7 +600,7 @@ export function TokuiStreamingRenderer({
     <div
       ref={rootRef}
       data-testid='tokui-streaming-renderer-root'
-      className={className}
+      className={['tokui-course-renderer', className].filter(Boolean).join(' ')}
     />
   );
 }

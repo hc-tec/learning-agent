@@ -68,12 +68,12 @@ describe('TokuiRenderer response submission', () => {
     expect(handleSubmit).toHaveBeenCalledWith([
       {
         field_id: 'heavy_haul_answer',
-        field_type: 'text',
+        field_type: 'short_text',
         value: '重载铁路',
       },
       {
         field_id: 'intercity_answer',
-        field_type: 'text',
+        field_type: 'short_text',
         value: '城际铁路',
       },
     ]);
@@ -183,7 +183,9 @@ describe('TokuiRenderer response submission', () => {
             </button>
           </form>
         `}
-        interactionSchema={[{ field_id: 'answer.with.dot', field_type: 'text' }]}
+        interactionSchema={[
+          { field_id: 'answer.with.dot', field_type: 'text' },
+        ]}
         onSubmitResponses={handleSubmit}
       />,
     );
@@ -193,7 +195,7 @@ describe('TokuiRenderer response submission', () => {
     expect(handleSubmit).toHaveBeenCalledWith([
       {
         field_id: 'answer.with.dot',
-        field_type: 'text',
+        field_type: 'short_text',
         value: '按 id 读取',
       },
     ]);
@@ -226,7 +228,7 @@ describe('TokuiRenderer response submission', () => {
     expect(handleSubmit).toHaveBeenCalledWith([
       {
         field_id: 'heavy_haul_reason_check',
-        field_type: 'text',
+        field_type: 'short_text',
         value: '高铁线路按高速客运优化',
       },
     ]);
@@ -348,9 +350,13 @@ describe('TokuiRenderer response submission', () => {
     fireEvent.click(screen.getByRole('button', { name: '提交答案' }));
 
     expect(handleSubmit).toHaveBeenCalledWith([
-      { field_id: 'topics', field_type: 'checkbox', value: ['speed', 'cargo'] },
-      { field_id: 'railway_type', field_type: 'radio', value: 'heavy' },
-      { field_id: 'confidence', field_type: 'select', value: 'high' },
+      {
+        field_id: 'topics',
+        field_type: 'multi_choice',
+        value: ['speed', 'cargo'],
+      },
+      { field_id: 'railway_type', field_type: 'single_choice', value: 'heavy' },
+      { field_id: 'confidence', field_type: 'single_choice', value: 'high' },
     ]);
 
     rerender(
@@ -392,13 +398,104 @@ describe('TokuiRenderer response submission', () => {
       container.querySelector('input[name="topics"][value="cargo"]'),
     ).toBeChecked();
     expect(
-      container.querySelector(
-        'input[name="railway_type"][value="intercity"]',
-      ),
+      container.querySelector('input[name="railway_type"][value="intercity"]'),
     ).toBeChecked();
-    expect(
-      container.querySelector('select[name="confidence"]'),
-    ).toHaveValue('low');
+    expect(container.querySelector('select[name="confidence"]')).toHaveValue(
+      'low',
+    );
     expect(container.querySelector('select[name="confidence"]')).toBeDisabled();
+  });
+
+  it('submits canonical rich question types and converts true_false values', () => {
+    const handleSubmit = jest.fn();
+    const { container } = render(
+      <TokuiRenderer
+        dsl={`
+          <form class="tokui-form" data-tokui-tag="form">
+            <textarea name="reason"></textarea>
+            <label><input type="radio" name="railway_type" value="heavy" />重载</label>
+            <label><input type="radio" name="railway_type" value="intercity" />城际</label>
+            <label><input type="checkbox" name="features" value="cargo" />货运</label>
+            <label><input type="checkbox" name="features" value="commute" />通勤</label>
+            <label><input type="radio" name="is_cargo_only" value="true" />对</label>
+            <label><input type="radio" name="is_cargo_only" value="false" />错</label>
+            <button class="tokui-btn" type="button" data-tokui-tag="btn">
+              提交答案
+            </button>
+          </form>
+        `}
+        interactionSchema={[
+          { field_id: 'reason', field_type: 'short_text' },
+          { field_id: 'railway_type', field_type: 'single_choice' },
+          { field_id: 'features', field_type: 'multi_choice' },
+          { field_id: 'is_cargo_only', field_type: 'true_false' },
+        ]}
+        onSubmitResponses={handleSubmit}
+      />,
+    );
+
+    fireEvent.change(
+      container.querySelector('textarea[name="reason"]') as HTMLTextAreaElement,
+      { target: { value: '万吨列车对应重载铁路' } },
+    );
+    fireEvent.click(
+      container.querySelector(
+        'input[name="railway_type"][value="heavy"]',
+      ) as Element,
+    );
+    fireEvent.click(
+      container.querySelector(
+        'input[name="features"][value="cargo"]',
+      ) as Element,
+    );
+    fireEvent.click(
+      container.querySelector(
+        'input[name="is_cargo_only"][value="true"]',
+      ) as Element,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '提交答案' }));
+
+    expect(handleSubmit).toHaveBeenCalledWith([
+      {
+        field_id: 'reason',
+        field_type: 'short_text',
+        value: '万吨列车对应重载铁路',
+      },
+      { field_id: 'railway_type', field_type: 'single_choice', value: 'heavy' },
+      { field_id: 'features', field_type: 'multi_choice', value: ['cargo'] },
+      { field_id: 'is_cargo_only', field_type: 'true_false', value: true },
+    ]);
+  });
+
+  it('renders schema fallback controls when DSL misses a declared interaction', () => {
+    const handleSubmit = jest.fn();
+    render(
+      <TokuiRenderer
+        dsl='<p>先读完这段讲解，再回答下面的问题。</p>'
+        interactionSchema={[
+          {
+            field_id: 'type_check',
+            field_type: 'single_choice',
+            label: '万吨列车属于哪类铁路？',
+            options: [
+              { value: 'high_speed', label: '高速铁路' },
+              { value: 'heavy_haul', label: '重载铁路' },
+            ],
+          },
+        ]}
+        onSubmitResponses={handleSubmit}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText(/重载铁路/));
+    fireEvent.click(screen.getByRole('button', { name: '提交' }));
+
+    expect(handleSubmit).toHaveBeenCalledWith([
+      {
+        field_id: 'type_check',
+        field_type: 'single_choice',
+        value: 'heavy_haul',
+      },
+    ]);
   });
 });
