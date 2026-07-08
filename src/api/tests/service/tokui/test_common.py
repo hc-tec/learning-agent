@@ -316,6 +316,17 @@ def test_generation_prompt_includes_material_and_interaction_design_contracts():
     assert "runtime contract, not a style suggestion" in prompt
     assert "reference UI pattern" in prompt
     assert "reference panels" in prompt
+    assert "UI pattern decision guide" in prompt
+    assert "First classify each teaching segment by learning job" in prompt
+    assert "Category comparison / type taxonomy / parameter contrast" in prompt
+    assert "use a reference comparison board" in prompt
+    assert "Each card/row must expose field" in prompt
+    assert "labels such as 速度, 功能, 特点" in prompt
+    assert "Process / sequence / cause-effect / route / schedule" in prompt
+    assert "Candidate selection / POI list / option filtering" in prompt
+    assert "A good learner block should feel like a small teaching tool" in prompt
+    assert "A bad learner block is a prose article with decorative cards" in prompt
+    assert "Apply the UI pattern decision guide before writing DSL" in prompt
     assert "[table]" in prompt
     assert "[steps]" in prompt
     assert "[badge]" in prompt

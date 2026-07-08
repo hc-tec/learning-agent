@@ -54,6 +54,35 @@ TOKUI_DEFAULT_CONTEXT_POLICY = {
 
 TOKUI_E2E_CONTROLLED_MODEL = "tokui-e2e-controlled"
 
+TOKUI_UI_PATTERN_DECISION_GUIDE = """
+TokUI UI pattern decision guide:
+- First classify each teaching segment by learning job, then choose the UI.
+  Do not choose tags because they look decorative.
+- Category comparison / type taxonomy / parameter contrast:
+  use a reference comparison board. Prefer `[row]` with 3-5 `[col]` cards
+  containing `[badge]` titles and short labeled `[p]` facts, or a valid
+  `[table]` when strict alignment matters. Each card/row must expose field
+  labels such as 速度, 功能, 特点, 适用场景, 数智化侧重.
+- Process / sequence / cause-effect / route / schedule:
+  use `[steps]` or `[timeline]`; each step should have a concise title and
+  one action/decision, not a paragraph dump.
+- Candidate selection / POI list / option filtering / preference collection:
+  use `[tag]`, `[badge]`, `[btngroup]`, `[input-tag]`, `[radio]`, or
+  `[checkbox]` so the learner can scan and choose. Do not turn choices into
+  plain prose.
+- Confirmation / summary before proceeding:
+  use a focused `[card]` or `[callout]` plus a real submit/choice control.
+- Feedback after a learner answer:
+  use a feedback card first, with a visible label such as 回答正确, 存在误区,
+  回答不够具体, or 答非所问, then continue or ask a retry question.
+- Media placeholders:
+  render them as muted resource/status rows near the insertion point, not as
+  random body text.
+- A good learner block should feel like a small teaching tool: clear current
+  task, scannable reference panel, explicit choices, and one obvious next
+  action. A bad learner block is a prose article with decorative cards.
+""".strip()
+
 TOKUI_DSL_BEST_PRACTICES = """
 TokUI DSL best practices from the parser/docs:
 - Put "dsl" as the first JSON property so learner streaming can start while the
@@ -578,6 +607,12 @@ def _build_generation_prompt(
         "or process structure, use `[steps]` or `[timeline]`. When the learner must choose among "
         "candidates, use chips/tags/badges and real choice controls. This is a "
         "runtime contract, not a style suggestion.\n"
+        "- Apply the UI pattern decision guide before writing DSL. Match the UI "
+        "to the teaching job: comparison board for taxonomies, steps/timeline for "
+        "processes, option panels for choices, resource/status rows for materials, "
+        "and feedback cards for answer diagnosis. If a lesson segment contains "
+        "both explanation and a learner decision, render the reference panel first "
+        "and the decision/checkpoint after it.\n"
     )
     material_policy = (
         "- The teacher provided structured material placements. Use their "
@@ -738,6 +773,8 @@ Rules:
 
 TokUI parser/source best practices:
 {TOKUI_DSL_BEST_PRACTICES}
+
+{TOKUI_UI_PATTERN_DECISION_GUIDE}
 {presentation_policy}
 {material_policy}
 {interaction_policy}
