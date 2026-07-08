@@ -247,6 +247,11 @@ def test_generation_prompt_includes_material_and_interaction_design_contracts():
     assert "student-facing teaching rewrite" in prompt
     assert "do not merely copy the teacher script verbatim" in prompt
     assert "learner-facing classroom flow" in prompt
+    assert 'Put the `dsl` property first' in prompt
+    assert 'A `card` that has child blocks must not use `tx:`' in prompt
+    assert 'Variants always use `v:`' in prompt
+    assert 'Prefer full-width `Q：` / `A：`' in prompt
+    assert 'Attribute values containing spaces, commas, pipes, semicolons' in prompt
     assert "中国四类铁路核心参数对比图" in prompt
     assert "万吨列车制动健康预测" in prompt
     assert '[input n:"field_id" l:"field label" t:text req]' in prompt
@@ -421,8 +426,12 @@ def test_stream_extractor_emits_dsl_value_across_json_chunks():
 
 def test_normalize_generated_tokui_dsl_repairs_common_llm_aliases():
     assert normalize_generated_tokui_dsl(
-        "[card][heading]铁路分类[/heading][p v:muted 素材待提供：对比图][/p][/card]"
-    ) == "[card][h2 铁路分类][p v:muted 素材待提供：对比图][/card]"
+        "[card tt:铁路 tx:分类速览][heading]铁路分类[/heading]"
+        "[p muted 素材待提供：对比图][/p][p Q:为什么分类？][/p][/card]"
+    ) == (
+        "[card tt:铁路][p 分类速览][h2 铁路分类]"
+        "[p v:muted 素材待提供：对比图][p Q：为什么分类？][/card]"
+    )
 
 
 def test_build_generation_payload_normalizes_dsl_before_validation():

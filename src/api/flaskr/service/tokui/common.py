@@ -11,6 +11,37 @@ TOKUI_STATUS_VALIDATED = "validated"
 TOKUI_STATUS_FAILED = "failed"
 TOKUI_STATUS_FALLBACK = "fallback"
 
+_TOKUI_TEXT_NEEDS_QUOTES_RE = re.compile(r"[\[\]:]")
+
+
+def _quote_tokui_text_content(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if _TOKUI_TEXT_NEEDS_QUOTES_RE.search(text):
+        return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    return text
+
+
+def _repair_card_tx_container(match: re.Match[str]) -> str:
+    attrs = match.group("attrs") or ""
+    body = match.group("body") or ""
+    tx_match = re.search(
+        r'(?:^|\s)tx:(?:"(?P<quoted>(?:[^"\\]|\\.)*)"|(?P<bare>[^\s\]]+))',
+        attrs,
+    )
+    if not tx_match or not body.strip():
+        return match.group(0)
+    tx_value = tx_match.group("quoted")
+    if tx_value is None:
+        tx_value = tx_match.group("bare") or ""
+    tx_value = tx_value.replace('\\"', '"')
+    cleaned_attrs = (attrs[: tx_match.start()] + attrs[tx_match.end() :]).strip()
+    open_tag = f"[card {cleaned_attrs}]" if cleaned_attrs else "[card]"
+    text_node = _quote_tokui_text_content(tx_value)
+    injected = f"[p {text_node}]" if text_node else ""
+    return f"{open_tag}{injected}{body}[/card]"
+
 
 def json_dumps(value: Any, default: Any) -> str:
     if value is None:
@@ -269,6 +300,25 @@ def normalize_generated_tokui_dsl(dsl: str) -> str:
     normalized = re.sub(
         r"\[heading\s+([^\]]+)\]",
         lambda match: f"[h2 {match.group(1).strip()}]",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    normalized = re.sub(
+        r"\[card(?P<attrs>[^\]]*\btx:(?:\"(?:[^\"\\]|\\.)*\"|[^\s\]]+)[^\]]*)\]"
+        r"(?P<body>[\s\S]*?)\[/card\]",
+        _repair_card_tx_container,
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    normalized = re.sub(
+        r"\[p\s+(muted|bold|sm|lg|left|center|right)\s+([^\]]+)\]",
+        lambda match: f"[p v:{match.group(1)} {match.group(2).strip()}]",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    normalized = re.sub(
+        r"\[(p|item|h[1-6])(\s+v:[^\s\]]+)?\s+([QA]):",
+        lambda match: f"[{match.group(1)}{match.group(2) or ''} {match.group(3)}：",
         normalized,
         flags=re.IGNORECASE,
     )

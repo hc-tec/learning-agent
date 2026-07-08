@@ -75,6 +75,55 @@ describe('LearnerTokuiBlock continuation flow', () => {
     jest.clearAllMocks();
   });
 
+  it('falls back to snapshot GET when stream ends without a final artifact', async () => {
+    mockedStreamLearnerTokui.mockImplementationOnce(({ onDone }) => {
+      Promise.resolve().then(() => onDone?.());
+      return { close: jest.fn() };
+    });
+    mockedApi.getLearnerTokui.mockResolvedValue({
+      enabled: true,
+      tokui_artifact_bid: 'artifact-snapshot',
+      schema_hash: 'schema-snapshot',
+      validation_status: 'validated',
+      dsl: '<section><p>快照里的已生成讲解</p></section>',
+      interaction_schema: [],
+    });
+
+    render(
+      <LearnerTokuiBlock shifuBid='shifu-1' outlineBid='outline-1' />,
+    );
+
+    expect(await screen.findByText('快照里的已生成讲解')).toBeInTheDocument();
+    expect(mockedApi.getLearnerTokui).toHaveBeenCalledWith({
+      shifu_bid: 'shifu-1',
+      outline_bid: 'outline-1',
+    });
+    expect(screen.queryByText('module.chat.tokuiLoadFailed')).not.toBeInTheDocument();
+  });
+
+  it('falls back to snapshot GET when the initial stream errors before chunks', async () => {
+    mockedStreamLearnerTokui.mockImplementationOnce(({ onError }) => {
+      Promise.resolve().then(() => onError?.(new Error('stream dropped')));
+      return { close: jest.fn() };
+    });
+    mockedApi.getLearnerTokui.mockResolvedValue({
+      enabled: true,
+      tokui_artifact_bid: 'artifact-snapshot',
+      schema_hash: 'schema-snapshot',
+      validation_status: 'validated',
+      dsl: '<section><p>错误后恢复的讲解</p></section>',
+      interaction_schema: [],
+    });
+
+    render(
+      <LearnerTokuiBlock shifuBid='shifu-1' outlineBid='outline-1' />,
+    );
+
+    expect(await screen.findByText('错误后恢复的讲解')).toBeInTheDocument();
+    expect(mockedApi.getLearnerTokui).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('module.chat.tokuiLoadFailed')).not.toBeInTheDocument();
+  });
+
   it('keeps streamed preview visible when the final artifact fails validation', async () => {
     mockedStreamLearnerTokui.mockImplementationOnce(({ onEvent, onDone }) => {
       Promise.resolve().then(() => {
@@ -261,6 +310,7 @@ describe('LearnerTokuiBlock continuation flow', () => {
       continue_required: true,
       continue_fields: ['heavy_haul_answer'],
     });
+    mockedApi.retryLearnerTokui.mockRejectedValue(new Error('retry failed'));
     mockedStreamLearnerTokui.mockImplementationOnce(({ onError }) => {
       Promise.resolve().then(() => onError?.(new Error('retry failed')));
       return { close: jest.fn() };
@@ -280,6 +330,7 @@ describe('LearnerTokuiBlock continuation flow', () => {
     await waitFor(() =>
       expect(mockedStreamLearnerTokui).toHaveBeenCalledTimes(2),
     );
+    await waitFor(() => expect(mockedApi.retryLearnerTokui).toHaveBeenCalled());
 
     expect(screen.getByText('第一段讲解')).toBeInTheDocument();
     expect(screen.getByDisplayValue('重载铁路')).toHaveAttribute('readonly');

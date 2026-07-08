@@ -54,6 +54,32 @@ TOKUI_DEFAULT_CONTEXT_POLICY = {
 
 TOKUI_E2E_CONTROLLED_MODEL = "tokui-e2e-controlled"
 
+TOKUI_DSL_BEST_PRACTICES = """
+TokUI DSL best practices from the parser/docs:
+- Put "dsl" as the first JSON property so learner streaming can start while the
+  JSON response is still being generated.
+- Containers need matching closing tags. Leaf tags must not pretend to contain
+  children.
+- A `card` that has child blocks must not use `tx:`. Write
+  `[card tt:"标题"][p 正文][btn tx:"继续" act:submit][/card]`, not
+  `[card tt:"标题" tx:"正文"][btn ...][/card]`; otherwise later children become
+  orphan top-level nodes.
+- Variants always use `v:`. Write `[p v:muted 提示]`, not `[p muted 提示]`;
+  bare variant words become visible body text.
+- Paragraph `p` is dual-mode. Use leaf mode for plain text:
+  `[p 一段文字]`. Use container mode only when it contains block children:
+  `[p][btn tx:"按钮"][/p]`.
+- Text containing literal `[` or `]`, or an ASCII `Q:` / `A:` prefix, must be
+  protected. Prefer full-width `Q：` / `A：`, or quote the whole text body.
+- Attribute values containing spaces, commas, pipes, semicolons, brackets, or
+  colons must be double-quoted, especially `opt:"value:label;value2:label2"`.
+- For streaming readability, long text blocks should use container forms such as
+  `[callout t:info]...[/callout]`, `[md]...[/md]`, or `[code lang:js]...[/code]`
+  rather than a giant `tx:` value.
+- Use supported media tags directly: `[img s:"provided_url" tt:"title"]` and
+  `[video s:"provided_url" controls]`; never invent `[media]`.
+""".strip()
+
 
 def _is_e2e_controlled_tokui(template_payload: dict[str, Any]) -> bool:
     generation_options = template_payload.get("generation_options") or {}
@@ -516,7 +542,8 @@ def _build_generation_prompt(
             "the same concept, ask a new retry question with a fresh field_id suffix such as "
             "_retry or _clarification. If the error says the continuation is missing "
             "answer-quality feedback, make the first DSL block an explicit feedback card "
-            "using \"回答正确\", \"存在误区\", \"回答不够具体\", or \"答非所问\" before any new teaching.\n"
+            "using \"回答正确\", \"存在误区\", \"回答不够具体\", or \"答非所问\" before any new teaching. "
+            "Also re-check the TokUI parser footguns below before returning the repaired JSON.\n"
             f"Validation errors JSON:\n{json_dumps(validation_errors, [])}\n"
         )
     return f"""
@@ -544,6 +571,9 @@ Required JSON shape:
 Rules:
 - Do not explain outside JSON.
 - Use TokUI DSL only in the dsl field.
+- Put the `dsl` property first in the returned JSON object, followed by
+  `interaction_schema` and `media_refs`, so the runtime can stream the DSL field
+  immediately.
 - Use only supported TokUI teaching tags for common lesson structure:
   `[card]`, `[p]`, `[h1]` to `[h6]`, `[callout]`, `[list]`, `[item]`,
   `[row]`, `[col]`, `[img]`, `[video]`, `[input]`, and `[btn]`.
@@ -609,6 +639,9 @@ Rules:
   teaching content. Decide whether the learner answer is correct, incorrect,
   vague/incomplete, or off-topic, then choose the follow-up strategy from that
   diagnosis. Do not treat every submitted answer as correct.
+
+TokUI parser/source best practices:
+{TOKUI_DSL_BEST_PRACTICES}
 {material_policy}
 {interaction_policy}
 {feedback_policy}
