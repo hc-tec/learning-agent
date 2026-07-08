@@ -17,6 +17,7 @@ from flaskr.service.shifu.shifu_tokui_funcs import (
 from flaskr.service.learn.tokui_runtime import (
     _continuation_contract_errors,
     _presentation_contract_errors,
+    _unsupported_presentation_tag_errors,
 )
 from flaskr.service.learn.tokui_runtime import (
     _append_tokui_message,
@@ -313,14 +314,44 @@ def test_generation_prompt_includes_material_and_interaction_design_contracts():
     assert '[btn tx:"提交" v:primary' in prompt
     assert "Presentation quality matters" in prompt
     assert "runtime contract, not a style suggestion" in prompt
-    assert "must contain at least one of" in prompt
+    assert "reference UI pattern" in prompt
+    assert "reference panels" in prompt
     assert "[table]" in prompt
     assert "[steps]" in prompt
+    assert "[badge]" in prompt
+    assert "[btngroup]" in prompt
+    assert "[timeline]" in prompt
+    assert "[tabs]" in prompt
+    assert "[collapse]" in prompt
+    assert "[input-tag]" in prompt
+    assert "do not use HTML-style `[td]` or `[th]`" in prompt
+    assert '[thead cols:"类型,速度,功能,数智化侧重"]' in prompt
+    assert '[tr "高速铁路,250-350 km/h,长途纯客运,智能运维"]' in prompt
+    assert 'Never generate `[heading]`, `[section]`, `[submit]`, `[media]`, `[td]`, or' in prompt
     assert "Do not generate `[submit]`" in prompt
     assert '[img s:"provided_url" tt:"title"' in prompt
     assert '[video s:"provided_url"]' in prompt
     assert "Do not generate `[media]` tags" in prompt
     assert "素材待提供" in prompt
+
+
+def test_contract_rejects_html_style_table_cells():
+    errors = _unsupported_presentation_tag_errors(
+        {
+            "dsl": (
+                "[card][table][thead][th 类型][/th][/thead][tbody]"
+                "[tr][td 高速铁路][/td][td 350km/h][/td][/tr]"
+                "[/tbody][/table][/card]"
+            )
+        }
+    )
+
+    assert [error["code"] for error in errors] == [
+        "TokuiUnsupportedPresentationTag",
+        "TokuiUnsupportedPresentationTag",
+    ]
+    assert "not HTML-style `[td]` cells" in errors[0]["message"]
+    assert "[thead cols" in errors[1]["message"]
 
 
 def test_presentation_contract_rejects_plain_complex_initial_output():
@@ -344,7 +375,7 @@ def test_presentation_contract_rejects_plain_complex_initial_output():
 def test_presentation_contract_accepts_structured_complex_initial_output():
     errors = _presentation_contract_errors(
         {
-            "dsl": "[card][callout t:info][p Key distinction][/callout][p Continue][/card]",
+            "dsl": "[card][callout t:info][p Key distinction][/callout][row][col][badge tx:\"TYPE\"][/col][/row][/card]",
             "interaction_schema": [],
         },
         {
@@ -356,6 +387,24 @@ def test_presentation_contract_accepts_structured_complex_initial_output():
     )
 
     assert errors == []
+
+
+def test_presentation_contract_rejects_callout_without_reference_ui():
+    errors = _presentation_contract_errors(
+        {
+            "dsl": "[card][callout t:info][p Key distinction][/callout][p Continue][/card]",
+            "interaction_schema": [],
+        },
+        {
+            "tokui_responses": [],
+            "teacher_material_refs": [{"title": "video"}, {"title": "chart"}],
+            "teacher_interaction_points": [{"prompt": "one"}, {"prompt": "two"}],
+        },
+        {"prompt_template": "short guide"},
+    )
+
+    assert errors
+    assert errors[0]["code"] == "TokuiPresentationMissingStructure"
 
 
 def test_presentation_contract_skips_continuation_blocks():
@@ -645,12 +694,44 @@ def test_normalize_generated_tokui_dsl_repairs_common_llm_aliases():
     )
 
 
+def test_normalize_generated_tokui_dsl_converts_html_style_table_to_cards():
+    normalized = normalize_generated_tokui_dsl(
+        '[table][thead][tr][th 类型][th 速度][th 功能][/tr][/thead]'
+        "[tbody]"
+        "[tr][td 高速铁路][td 250-350 km/h][td 长途纯客运][/tr]"
+        "[tr][td 重载铁路][td 80-120 km/h][td 大宗货运][/tr]"
+        "[/tbody][/table]"
+    )
+
+    assert "[td" not in normalized.lower()
+    assert "[th" not in normalized.lower()
+    assert normalized == (
+        "[row]"
+        "[col][badge 高速铁路][p 速度：250-350 km/h][p 功能：长途纯客运][/col]"
+        "[col][badge 重载铁路][p 速度：80-120 km/h][p 功能：大宗货运][/col]"
+        "[/row]"
+    )
+
+
 def test_build_generation_payload_normalizes_dsl_before_validation():
     payload = build_generation_payload(
         '{"dsl":"[card][heading]标题[/heading][/card]","interaction_schema":[]}'
     )
 
     assert payload["dsl"] == "[card][h2 标题][/card]"
+
+
+def test_contract_allows_supported_tokui_thead_syntax():
+    errors = _unsupported_presentation_tag_errors(
+        {
+            "dsl": (
+                '[table][thead cols:"类型,速度"]'
+                '[tbody][tr "高速铁路,250-350 km/h"][/tbody][/table]'
+            )
+        }
+    )
+
+    assert errors == []
 
 
 def test_artifact_chain_keeps_latest_failed_fallback_without_old_failures():

@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -40,6 +41,10 @@ from run_tokui_complex_course_e2e import (
 TARGET_URL = os.getenv("AI_SHIFU_URL", "http://127.0.0.1:8080").rstrip("/")
 RESULT_PATH = Path(__file__).resolve().parent / "tokui_real_railway_course_e2e_result.json"
 REAL_MODEL = os.getenv("E2E_REAL_TOKUI_MODEL", "deepseek-v4-flash")
+
+
+def has_html_style_tokui_table_cells(dsl: str) -> bool:
+    return bool(re.search(r"\[(?:td|th)(?:\s|\])", str(dsl or ""), re.IGNORECASE))
 
 
 REAL_RAILWAY_LESSON_GUIDANCE = """
@@ -548,8 +553,33 @@ def run_real_course_scenario(client: ApiClient, answer_case: str) -> dict[str, A
     )
     recorder.check(
         "first_runtime_uses_richer_tokui_presentation",
-        count_terms(dsl_1, ["[callout", "[table", "[row", "[steps", "[desc"]) >= 1,
-        "real learner artifact should use supported TokUI structure beyond plain paragraphs",
+        count_terms(
+            dsl_1,
+            [
+                "[table",
+                "[row",
+                "[col",
+                "[steps",
+                "[desc",
+                "[tag",
+                "[badge",
+                "[btngroup",
+                "[timeline",
+                "[tabs",
+                "[collapse",
+                "[input-tag",
+                "[radio",
+                "[checkbox",
+            ],
+        )
+        >= 1,
+        "real learner artifact should include a reference-style TokUI UI panel beyond text/callout",
+        {"dsl_prefix": dsl_1[:1200]},
+    )
+    recorder.check(
+        "first_runtime_uses_supported_tokui_table_syntax",
+        not has_html_style_tokui_table_cells(dsl_1),
+        "TokUI tables must use [thead cols:\"...\"] and comma-separated [tr ...] rows, not HTML-style td/th tags",
         {"dsl_prefix": dsl_1[:1200]},
     )
 

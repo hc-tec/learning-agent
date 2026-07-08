@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from flask import Flask
@@ -67,7 +68,35 @@ CONTINUATION_FEEDBACK_TERMS = (
     "off-topic",
 )
 
-TOKUI_PRESENTATION_STRUCTURE_TAGS = ("[callout", "[table", "[row", "[steps", "[desc")
+TOKUI_PRESENTATION_STRUCTURE_TAGS = (
+    "[callout",
+    "[table",
+    "[row",
+    "[steps",
+    "[desc",
+)
+
+TOKUI_REFERENCE_UI_TAGS = (
+    "[table",
+    "[row",
+    "[col",
+    "[steps",
+    "[desc",
+    "[tag",
+    "[badge",
+    "[btngroup",
+    "[timeline",
+    "[tabs",
+    "[collapse",
+    "[input-tag",
+    "[radio",
+    "[checkbox",
+)
+
+TOKUI_UNSUPPORTED_PRESENTATION_TAGS = {
+    "[td": "TokUI tables use `[thead cols:\"...\"]` and comma-separated `[tr ...]` rows, not HTML-style `[td]` cells.",
+    "[th": "TokUI tables use `[thead cols:\"...\"]` for headers, not HTML-style `[th]` cells.",
+}
 
 TOKUI_CONVERSATION_SYSTEM_PROMPT = """
 你是同一个学生在同一节课里的长期 AI 教学对话。
@@ -591,21 +620,57 @@ def _presentation_contract_errors(
         return []
 
     dsl = str(generated.get("dsl") or "").lower()
-    if any(tag in dsl for tag in TOKUI_PRESENTATION_STRUCTURE_TAGS):
+    has_structure = any(tag in dsl for tag in TOKUI_PRESENTATION_STRUCTURE_TAGS)
+    has_reference_ui = any(tag in dsl for tag in TOKUI_REFERENCE_UI_TAGS)
+    if has_structure and has_reference_ui:
         return []
 
     return [
         {
             "message": (
-                "Initial complex lesson output used only plain blocks. Rewrite the "
-                "learner-facing TokUI with at least one supported teaching structure "
-                "tag: [callout], [table], [row], [steps], or [desc]. For comparison "
-                "content, prefer [table] or [row]/[col]. Do not invent unsupported "
-                "visual tags."
+                "Initial complex lesson output did not include a meaningful visual "
+                "reference UI. Keep explanatory text where useful, but add at least "
+                "one supported reference-style TokUI panel using [table], [row]/[col], "
+                "[steps], [desc], [tag]/[badge], [btngroup], [timeline], [tabs], "
+                "[collapse], [input-tag], [radio], or [checkbox]. "
+                "For comparison content, prefer [table] or [row]/[col]. For timeline "
+                "or process content, prefer [steps]. For candidate/selection content, "
+                "prefer tags, badges, radio, checkbox, or button groups. Do not invent "
+                "unsupported visual tags."
             ),
             "code": "TokuiPresentationMissingStructure",
         }
     ]
+
+
+def _unsupported_presentation_tag_errors(
+    generated: dict[str, Any],
+) -> list[dict[str, Any]]:
+    dsl = str(generated.get("dsl") or "").lower()
+    errors: list[dict[str, Any]] = []
+    for tag, message in TOKUI_UNSUPPORTED_PRESENTATION_TAGS.items():
+        tag_name = tag.lstrip("[")
+        if re.search(rf"\[{re.escape(tag_name)}(?:\s|\])", dsl):
+            errors.append(
+                {
+                    "message": (
+                        f"{message} Replace the broken table with a valid "
+                        "TokUI table or, for visual comparison panels, use "
+                        "[row]/[col] cards with [badge] and [tag]."
+                    ),
+                    "code": "TokuiUnsupportedPresentationTag",
+                    "tag": tag,
+                }
+            )
+    return errors
+
+
+def _dsl_has_unsupported_presentation_tags(dsl: str) -> bool:
+    normalized = str(dsl or "").lower()
+    return any(
+        re.search(rf"\[{re.escape(tag.lstrip('['))}(?:\s|\])", normalized)
+        for tag in TOKUI_UNSUPPORTED_PRESENTATION_TAGS
+    )
 
 
 def _tokui_contract_errors(
@@ -614,6 +679,7 @@ def _tokui_contract_errors(
     template_payload: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     return [
+        *_unsupported_presentation_tag_errors(generated),
         *_continuation_contract_errors(generated, context_payload),
         *_presentation_contract_errors(generated, context_payload, template_payload),
     ]
@@ -823,7 +889,11 @@ def _generate_tokui_artifact_steps(
                 template_hash_value=template.template_hash,
                 context_hash_value=context_hash,
             )
-            if reusable and _should_reuse_artifact(reusable):
+            if (
+                reusable
+                and not _dsl_has_unsupported_presentation_tags(reusable.dsl)
+                and _should_reuse_artifact(reusable)
+            ):
                 result = _artifact_to_dict(reusable)
                 result["enabled"] = True
                 result["reused"] = True

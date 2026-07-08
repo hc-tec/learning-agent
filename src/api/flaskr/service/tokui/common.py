@@ -78,6 +78,92 @@ def _repair_card_tx_container(match: re.Match[str]) -> str:
     return f"{open_tag}{injected}{body}[/card]"
 
 
+def _clean_tokui_table_cell(value: str) -> str:
+    cleaned = re.sub(r"\[[^\]]+\]", " ", str(value or ""))
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return (
+        cleaned.replace("\\", "\\\\")
+        .replace('"', "'")
+        .replace("[", "(")
+        .replace("]", ")")
+    )
+
+
+def _extract_html_style_cells(row_body: str, cell_tag: str) -> list[str]:
+    cells = [
+        _clean_tokui_table_cell(match.group(1))
+        for match in re.finditer(
+            rf"\[{cell_tag}\b[^\]]*\]([\s\S]*?)\[/{cell_tag}\]",
+            row_body,
+            flags=re.IGNORECASE,
+        )
+    ]
+    if cells:
+        return [cell for cell in cells if cell]
+    return [
+        _clean_tokui_table_cell(match.group(1))
+        for match in re.finditer(
+            rf"\[{cell_tag}\s+([^\]]+)\]",
+            row_body,
+            flags=re.IGNORECASE,
+        )
+        if _clean_tokui_table_cell(match.group(1))
+    ]
+
+
+def _extract_html_style_rows(table_body: str, cell_tag: str) -> list[list[str]]:
+    rows: list[list[str]] = []
+    for row_match in re.finditer(
+        r"\[tr\b[^\]]*\]([\s\S]*?)\[/tr\]",
+        table_body,
+        flags=re.IGNORECASE,
+    ):
+        cells = _extract_html_style_cells(row_match.group(1), cell_tag)
+        if cells:
+            rows.append(cells)
+    return rows
+
+
+def _repair_html_style_table_cells(match: re.Match[str]) -> str:
+    full_table = match.group(0)
+    table_body = match.group("body") or ""
+    if not re.search(r"\[(?:td|th)(?:\s|\])", table_body, flags=re.IGNORECASE):
+        return full_table
+
+    thead_match = re.search(
+        r"\[thead\b[^\]]*\]([\s\S]*?)\[/thead\]",
+        table_body,
+        flags=re.IGNORECASE,
+    )
+    tbody_match = re.search(
+        r"\[tbody\b[^\]]*\]([\s\S]*?)\[/tbody\]",
+        table_body,
+        flags=re.IGNORECASE,
+    )
+    header_rows = (
+        _extract_html_style_rows(thead_match.group(1), "th") if thead_match else []
+    )
+    body_rows = _extract_html_style_rows(
+        tbody_match.group(1) if tbody_match else table_body,
+        "td",
+    )
+    headers = header_rows[0] if header_rows else []
+    if not body_rows:
+        return full_table
+
+    cols: list[str] = []
+    for row in body_rows:
+        if not row:
+            continue
+        title = row[0]
+        details: list[str] = []
+        for index, cell in enumerate(row[1:], start=1):
+            label = headers[index] if index < len(headers) else f"维度 {index + 1}"
+            details.append(f"[p {label}：{cell}]")
+        cols.append(f"[col][badge {title}]{''.join(details)}[/col]")
+    return f"[row]{''.join(cols)}[/row]" if cols else full_table
+
+
 def json_dumps(value: Any, default: Any) -> str:
     if value is None:
         value = default
@@ -420,6 +506,12 @@ def normalize_generated_tokui_dsl(dsl: str) -> str:
     normalized = re.sub(
         r"(\[p[^\]]+\])\s*\[/p\]",
         r"\1",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    normalized = re.sub(
+        r"\[table(?P<attrs>[^\]]*)\](?P<body>[\s\S]*?)\[/table\]",
+        _repair_html_style_table_cells,
         normalized,
         flags=re.IGNORECASE,
     )

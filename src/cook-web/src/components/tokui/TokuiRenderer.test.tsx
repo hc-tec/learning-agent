@@ -30,6 +30,43 @@ jest.mock('@jboltai/tokui', () => ({
 }));
 
 describe('TokuiRenderer response submission', () => {
+  it('renders reference-style TokUI panels together with explanatory text and choices', () => {
+    const { container } = render(
+      <TokuiRenderer
+        dsl={`
+          <section data-tokui-tag="card">
+            <p>先用文字解释四类铁路为什么要区分。</p>
+            <div data-tokui-tag="row">
+              <div data-tokui-tag="col">
+                <span data-tokui-tag="badge">高速铁路</span>
+                <p>长途主干客运</p>
+              </div>
+              <div data-tokui-tag="col">
+                <span data-tokui-tag="badge">重载铁路</span>
+                <p>大宗货运</p>
+              </div>
+            </div>
+            <form class="tokui-form" data-tokui-tag="form">
+              <label><input type="radio" name="railway_type" value="heavy_haul" />重载铁路</label>
+              <button class="tokui-btn" type="button" data-tokui-tag="btn">提交</button>
+            </form>
+          </section>
+        `}
+        interactionSchema={[
+          { field_id: 'railway_type', field_type: 'single_choice' },
+        ]}
+        onSubmitResponses={jest.fn()}
+      />,
+    );
+
+    expect(container.querySelector('[data-tokui-tag="row"]')).toBeTruthy();
+    expect(container.querySelectorAll('[data-tokui-tag="col"]')).toHaveLength(2);
+    expect(container.querySelectorAll('[data-tokui-tag="badge"]')).toHaveLength(
+      2,
+    );
+    expect(container).toHaveTextContent('先用文字解释四类铁路为什么要区分。');
+  });
+
   it('submits form values when TokUI renders a type button submit control', () => {
     const handleSubmit = jest.fn();
     const { container } = render(
@@ -146,6 +183,19 @@ describe('TokuiRenderer response submission', () => {
       ),
     ).toBe(
       '[img s:"/figure.png" tt:"参数对比图" alt:"参数对比图"][p v:muted 素材待提供：实景短片]',
+    );
+  });
+
+  it('normalizes HTML-style TokUI table cells into comparison cards', () => {
+    expect(
+      normalizeLearnerTokuiDsl(
+        '[table][thead][tr][th 类型][th 速度][th 功能][/tr][/thead]' +
+          '[tbody][tr][td 高速铁路][td 250-350 km/h][td 长途纯客运][/tr]' +
+          '[tr][td 重载铁路][td 80-120 km/h][td 大宗货运][/tr][/tbody][/table]',
+      ),
+    ).toBe(
+      '[row][col][badge 高速铁路][p 速度：250-350 km/h][p 功能：长途纯客运][/col]' +
+        '[col][badge 重载铁路][p 速度：80-120 km/h][p 功能：大宗货运][/col][/row]',
     );
   });
 

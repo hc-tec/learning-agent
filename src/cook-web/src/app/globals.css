@@ -236,12 +236,52 @@ body.listen-mode-vh-fallback #root {
   .tokui-course-renderer {
     color: var(--foreground);
     line-height: 1.72;
+    --tokui-course-ink: #132033;
+    --tokui-course-muted: #64748b;
+    --tokui-course-panel: #ffffff;
+    --tokui-course-panel-soft: #f7fafc;
+    --tokui-course-line: #dce5ef;
+    --tokui-course-blue: #2563eb;
+    --tokui-course-green: #0f9f6e;
+    --tokui-course-amber: #b7791f;
+    --tokui-course-shadow: 0 14px 34px rgba(15, 23, 42, 0.08);
+  }
+
+  .tokui-course-renderer
+    :where(h1, h2, h3, h4, h5, h6, [data-tokui-tag^='h']) {
+    margin: 1.1rem 0 0.55rem;
+    color: #0f172a;
+    font-weight: 780;
+    letter-spacing: 0;
+    line-height: 1.28;
+  }
+
+  .tokui-course-renderer :where(p, [data-tokui-tag='p'], .tokui-p) {
+    margin: 0.45rem 0;
+    color: #253041;
   }
 
   .tokui-course-renderer :where(.tokui-card, [data-tokui-tag='card']) {
-    border-color: #d7dee8;
+    border: 1px solid var(--tokui-course-line);
     border-radius: 8px;
-    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+    background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+    box-shadow: var(--tokui-course-shadow);
+    overflow: hidden;
+  }
+
+  .tokui-course-renderer :where(.tokui-card__header, .tokui-card-header) {
+    border-bottom: 1px solid #e3e8f0;
+    background:
+      linear-gradient(90deg, rgba(37, 99, 235, 0.08), transparent 55%),
+      #f8fafc;
+    padding: 0.86rem 1rem;
+    color: var(--tokui-course-ink);
+    font-size: 0.98rem;
+    font-weight: 780;
+  }
+
+  .tokui-course-renderer :where(.tokui-card__body, .tokui-card-body) {
+    padding: 0.95rem;
   }
 
   .tokui-course-renderer
@@ -254,27 +294,537 @@ body.listen-mode-vh-fallback #root {
 
   .tokui-course-renderer :where(.tokui-callout, [data-tokui-tag='callout']) {
     border-radius: 8px;
+    border: 1px solid #dbe3ee;
     border-left-width: 4px;
     background: #f8fafc;
+    padding: 0.78rem 0.9rem;
+  }
+
+  .tokui-course-renderer :where([data-tokui-tag='row'], .tokui-row) {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+    gap: 0.85rem;
+    align-items: stretch;
+    margin: 0.9rem 0;
+  }
+
+  .tokui-course-renderer .tokui-row {
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)) !important;
+  }
+
+  .tokui-course-renderer :where([data-tokui-tag='col'], .tokui-col) {
+    position: relative;
+    min-width: 0;
+    border: 1px solid var(--tokui-course-line);
+    border-radius: 8px;
+    background:
+      linear-gradient(180deg, rgba(37, 99, 235, 0.055), transparent 44%),
+      var(--tokui-course-panel);
+    padding: 0.9rem;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.065);
+  }
+
+  .tokui-course-renderer :where([data-tokui-tag='col'], .tokui-col)::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: 0;
+    height: 4px;
+    border-radius: 8px 8px 0 0;
+    background: #2563eb;
+  }
+
+  .tokui-course-renderer
+    :where([data-tokui-tag='row'], .tokui-row)
+    > :where([data-tokui-tag='col'], .tokui-col):nth-child(4n + 1) {
+    border-color: #bfdbfe;
+    background:
+      linear-gradient(180deg, #eff6ff 0%, #ffffff 58%),
+      var(--tokui-course-panel);
+  }
+
+  .tokui-course-renderer
+    :where([data-tokui-tag='row'], .tokui-row)
+    > :where([data-tokui-tag='col'], .tokui-col):nth-child(4n + 1)::before {
+    background: #2563eb;
+  }
+
+  .tokui-course-renderer
+    :where([data-tokui-tag='row'], .tokui-row)
+    > :where([data-tokui-tag='col'], .tokui-col):nth-child(4n + 2) {
+    border-color: #bbf7d0;
+    background:
+      linear-gradient(180deg, #f0fdf4 0%, #ffffff 58%),
+      var(--tokui-course-panel);
+  }
+
+  .tokui-course-renderer
+    :where([data-tokui-tag='row'], .tokui-row)
+    > :where([data-tokui-tag='col'], .tokui-col):nth-child(4n + 2)::before {
+    background: #16a34a;
+  }
+
+  .tokui-course-renderer
+    :where([data-tokui-tag='row'], .tokui-row)
+    > :where([data-tokui-tag='col'], .tokui-col):nth-child(4n + 3) {
+    border-color: #fed7aa;
+    background:
+      linear-gradient(180deg, #fff7ed 0%, #ffffff 58%),
+      var(--tokui-course-panel);
+  }
+
+  .tokui-course-renderer
+    :where([data-tokui-tag='row'], .tokui-row)
+    > :where([data-tokui-tag='col'], .tokui-col):nth-child(4n + 3)::before {
+    background: #f97316;
+  }
+
+  .tokui-course-renderer
+    :where([data-tokui-tag='row'], .tokui-row)
+    > :where([data-tokui-tag='col'], .tokui-col):nth-child(4n + 4) {
+    border-color: #fecdd3;
+    background:
+      linear-gradient(180deg, #fff1f2 0%, #ffffff 58%),
+      var(--tokui-course-panel);
+  }
+
+  .tokui-course-renderer
+    :where([data-tokui-tag='row'], .tokui-row)
+    > :where([data-tokui-tag='col'], .tokui-col):nth-child(4n + 4)::before {
+    background: #e11d48;
+  }
+
+  .tokui-course-renderer
+    :where([data-tokui-tag='row'], .tokui-row)
+    > :where([data-tokui-tag='col'], .tokui-col) {
+    display: grid;
+    align-content: start;
+    gap: 0.62rem;
+  }
+
+  .tokui-course-renderer
+    :where([data-tokui-tag='col'], .tokui-col)
+    :where([data-tokui-tag='badge'], .tokui-badge) {
+    margin-bottom: 0.35rem;
+  }
+
+  .tokui-course-renderer .tokui-col .tokui-badge {
+    width: 100%;
+    justify-content: center;
+    border-radius: 999px;
+    background: #111827 !important;
+    color: #ffffff !important;
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
+  }
+
+  .tokui-course-renderer .tokui-col .tokui-p {
+    min-height: 2.75rem;
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.72);
+    padding: 0.5rem 0.58rem;
+    color: #172033;
+    font-size: 0.9rem;
+    line-height: 1.52;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.035);
+  }
+
+  .tokui-course-renderer
+    .tokui-row
+    > .tokui-col:nth-child(4n + 1)
+    .tokui-badge {
+    background: #2563eb !important;
+  }
+
+  .tokui-course-renderer
+    .tokui-row
+    > .tokui-col:nth-child(4n + 2)
+    .tokui-badge {
+    background: #16a34a !important;
+  }
+
+  .tokui-course-renderer
+    .tokui-row
+    > .tokui-col:nth-child(4n + 3)
+    .tokui-badge {
+    background: #f97316 !important;
+  }
+
+  .tokui-course-renderer
+    .tokui-row
+    > .tokui-col:nth-child(4n + 4)
+    .tokui-badge {
+    background: #e11d48 !important;
+  }
+
+  .tokui-course-renderer :where(.tokui-table-wrapper) {
+    overflow-x: auto;
+    border-radius: 8px;
   }
 
   .tokui-course-renderer :where(table, .tokui-table) {
     width: 100%;
-    border-collapse: collapse;
-    overflow-x: auto;
+    border-collapse: separate;
+    border-spacing: 0;
     font-size: 0.92rem;
+    border: 1px solid var(--tokui-course-line);
+    border-radius: 8px;
+    background: #ffffff;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04);
   }
 
   .tokui-course-renderer :where(th, td) {
-    border: 1px solid #dbe3ee;
+    border-bottom: 1px solid #dbe3ee;
+    border-right: 1px solid #dbe3ee;
     padding: 0.62rem 0.72rem;
     vertical-align: top;
   }
 
   .tokui-course-renderer :where(th) {
-    background: #eef6ff;
+    background: #f3f7fb;
     color: #0f172a;
     font-weight: 650;
+  }
+
+  .tokui-course-renderer :where(tr:last-child td) {
+    border-bottom: 0;
+  }
+
+  .tokui-course-renderer :where(th:last-child, td:last-child) {
+    border-right: 0;
+  }
+
+  .tokui-course-renderer .tokui-table {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+    gap: 0.85rem;
+    min-width: 0 !important;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .tokui-course-renderer .tokui-table thead {
+    display: none;
+  }
+
+  .tokui-course-renderer .tokui-table tbody {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+    gap: 0.85rem;
+  }
+
+  .tokui-course-renderer .tokui-table tr {
+    position: relative;
+    display: grid;
+    gap: 0.58rem;
+    align-content: start;
+    border: 1px solid #dbe7f5;
+    border-radius: 8px;
+    background:
+      linear-gradient(180deg, #f8fbff 0%, #ffffff 58%),
+      #ffffff;
+    padding: 1rem 0.9rem 0.9rem;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+  }
+
+  .tokui-course-renderer .tokui-table tr::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: 0;
+    height: 4px;
+    border-radius: 8px 8px 0 0;
+    background: #2563eb;
+  }
+
+  .tokui-course-renderer .tokui-table tr:nth-child(4n + 2)::before {
+    background: #16a34a;
+  }
+
+  .tokui-course-renderer .tokui-table tr:nth-child(4n + 3)::before {
+    background: #f97316;
+  }
+
+  .tokui-course-renderer .tokui-table tr:nth-child(4n + 4)::before {
+    background: #e11d48;
+  }
+
+  .tokui-course-renderer .tokui-table td {
+    display: block;
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.72);
+    padding: 0.5rem 0.58rem;
+    color: #172033;
+    font-size: 0.9rem;
+    line-height: 1.52;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.035);
+  }
+
+  .tokui-course-renderer .tokui-table td:first-child {
+    border: 0;
+    border-radius: 999px;
+    background: #2563eb;
+    color: #ffffff;
+    font-weight: 780;
+    text-align: center;
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
+  }
+
+  .tokui-course-renderer
+    .tokui-table
+    tr:nth-child(4n + 2)
+    td:first-child {
+    background: #16a34a;
+  }
+
+  .tokui-course-renderer
+    .tokui-table
+    tr:nth-child(4n + 3)
+    td:first-child {
+    background: #f97316;
+  }
+
+  .tokui-course-renderer
+    .tokui-table
+    tr:nth-child(4n + 4)
+    td:first-child {
+    background: #e11d48;
+  }
+
+  .tokui-course-renderer
+    :where(.tokui-thead:has(th:empty), .tokui-thead-row:has(th:empty)) {
+    display: none;
+  }
+
+  .tokui-course-renderer
+    :where(.tokui-table-wrapper .tokui-unknown[data-tokui-type='td']) {
+    display: inline-flex;
+    width: calc(25% - 0.25rem);
+    min-height: 3rem;
+    margin: 0.125rem;
+    align-items: center;
+    border: 1px solid #dbe3ee;
+    border-radius: 8px;
+    background: #f8fafc;
+    padding: 0.6rem 0.7rem;
+    color: #1f2937;
+    font-weight: 620;
+    vertical-align: top;
+  }
+
+  .tokui-course-renderer :where([data-tokui-tag='steps'], .tokui-steps) {
+    display: grid;
+    gap: 0.75rem;
+    margin: 1rem 0;
+    counter-reset: tokui-step;
+  }
+
+  .tokui-course-renderer :where([data-tokui-tag='timeline'], .tokui-timeline) {
+    display: grid;
+    gap: 0.75rem;
+    margin: 1rem 0;
+    border: 1px solid #dbe3ee;
+    border-radius: 8px;
+    background: #ffffff;
+    padding: 0.85rem;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04);
+  }
+
+  .tokui-course-renderer
+    :where(.tokui-ti, .tokui-timeline-item, [data-tokui-tag='tn']) {
+    position: relative;
+    display: grid;
+    gap: 0.2rem;
+    padding-left: 2rem;
+  }
+
+  .tokui-course-renderer
+    :where(.tokui-ti, .tokui-timeline-item, [data-tokui-tag='tn'])::before {
+    content: '';
+    position: absolute;
+    top: 0.42rem;
+    left: 0.38rem;
+    width: 0.72rem;
+    height: 0.72rem;
+    border: 2px solid #111827;
+    border-radius: 999px;
+    background: #ffffff;
+  }
+
+  .tokui-course-renderer
+    :where(.tokui-ti, .tokui-timeline-item, [data-tokui-tag='tn'])::after {
+    content: '';
+    position: absolute;
+    top: 1.3rem;
+    bottom: -0.7rem;
+    left: 0.72rem;
+    width: 1px;
+    background: #dbe3ee;
+  }
+
+  .tokui-course-renderer
+    :where(.tokui-ti:last-child, .tokui-timeline-item:last-child)::after {
+    display: none;
+  }
+
+  .tokui-course-renderer :where([data-tokui-tag='tabs'], .tokui-tabs) {
+    margin: 1rem 0;
+    border: 1px solid #dbe3ee;
+    border-radius: 8px;
+    background: #ffffff;
+    padding: 0.4rem;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04);
+  }
+
+  .tokui-course-renderer :where(.tokui-tabs-label) {
+    min-height: 2.25rem;
+    border-radius: 7px;
+    padding: 0.42rem 0.75rem;
+    color: #64748b;
+    font-weight: 700;
+  }
+
+  .tokui-course-renderer
+    :where(.tokui-tabs-input:checked + .tokui-tabs-label) {
+    background: #eff6ff;
+    color: #1d4ed8;
+    box-shadow: inset 0 0 0 1px #bfdbfe;
+  }
+
+  .tokui-course-renderer :where([data-tokui-tag='collapse'], .tokui-collapse) {
+    border: 1px solid #dbe3ee;
+    border-radius: 8px;
+    background: #ffffff;
+    box-shadow: 0 6px 16px rgba(15, 23, 42, 0.04);
+  }
+
+  .tokui-course-renderer :where(.tokui-collapse__summary) {
+    padding: 0.72rem 0.85rem;
+    color: #0f172a;
+    font-weight: 750;
+  }
+
+  .tokui-course-renderer :where(.tokui-collapse__content) {
+    border-top: 1px solid #e3e8f0;
+    padding: 0.75rem 0.85rem;
+    background: #fbfdff;
+  }
+
+  .tokui-course-renderer :where([data-tokui-tag='step'], .tokui-step) {
+    position: relative;
+    display: grid;
+    gap: 0.25rem;
+    min-height: 3.2rem;
+    border: 1px solid #dbe3ee;
+    border-radius: 8px;
+    background: #ffffff;
+    padding: 0.75rem 0.85rem 0.75rem 3.15rem;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04);
+    counter-increment: tokui-step;
+  }
+
+  .tokui-course-renderer :where([data-tokui-tag='step'], .tokui-step)::before {
+    content: counter(tokui-step);
+    position: absolute;
+    top: 0.85rem;
+    left: 0.85rem;
+    display: grid;
+    width: 1.6rem;
+    height: 1.6rem;
+    place-items: center;
+    border-radius: 999px;
+    background: #111827;
+    color: #ffffff;
+    font-size: 0.8rem;
+    font-weight: 700;
+  }
+
+  .tokui-course-renderer :where([data-tokui-tag='desc'], .tokui-desc) {
+    display: grid;
+    gap: 0.55rem;
+    margin: 0.9rem 0;
+    border: 1px solid #dbe3ee;
+    border-radius: 8px;
+    background: #fbfdff;
+    padding: 0.85rem;
+  }
+
+  .tokui-course-renderer :where(dl, [data-tokui-tag='desc']) {
+    grid-template-columns: minmax(7rem, 0.9fr) minmax(0, 2fr);
+  }
+
+  .tokui-course-renderer :where(dt) {
+    color: #64748b;
+    font-size: 0.82rem;
+    font-weight: 700;
+  }
+
+  .tokui-course-renderer :where(dd) {
+    color: #111827;
+    font-weight: 650;
+  }
+
+  .tokui-course-renderer :where([data-tokui-tag='tag'], .tokui-tag) {
+    display: inline-flex;
+    min-height: 1.85rem;
+    align-items: center;
+    gap: 0.35rem;
+    border: 1px solid #d7dee8;
+    border-radius: 999px;
+    background: #ffffff;
+    padding: 0.18rem 0.6rem;
+    color: #334155;
+    font-size: 0.82rem;
+    font-weight: 650;
+    line-height: 1.25;
+  }
+
+  .tokui-course-renderer :where([data-tokui-tag='badge'], .tokui-badge) {
+    display: inline-flex;
+    min-height: 1.65rem;
+    align-items: center;
+    border-radius: 6px;
+    background: #111827;
+    padding: 0.18rem 0.6rem;
+    color: #ffffff;
+    font-size: 0.78rem;
+    font-weight: 750;
+    letter-spacing: 0;
+  }
+
+  .tokui-course-renderer :where([data-tokui-tag='btngroup'], .tokui-btngroup) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0.8rem 0;
+  }
+
+  .tokui-course-renderer :where(button, .tokui-btn) {
+    min-height: 2.35rem;
+    border-radius: 8px;
+    border: 1px solid #d7dee8;
+    background: #ffffff;
+    padding: 0.45rem 0.85rem;
+    color: #111827;
+    font-weight: 700;
+    letter-spacing: 0;
+    box-shadow: 0 5px 14px rgba(15, 23, 42, 0.06);
+  }
+
+  .tokui-course-renderer
+    :where(button[data-tokui-variant='primary'], .tokui-btn--primary) {
+    border-color: #111827;
+    background: #111827;
+    color: #ffffff;
+  }
+
+  .tokui-course-renderer :where(.tokui-btn:hover) {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.09);
   }
 
   .tokui-course-renderer :where(img, video) {
@@ -282,18 +832,88 @@ body.listen-mode-vh-fallback #root {
     border-radius: 8px;
     border: 1px solid #dbe3ee;
     background: #f8fafc;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
   }
 
   .tokui-course-renderer :where(form, .tokui-form, .tokui-schema-fallback) {
     margin-top: 1rem;
     border: 1px solid #cbd8e8;
     border-radius: 8px;
-    background: #fbfdff;
-    padding: 0.9rem;
+    background: linear-gradient(180deg, #fbfdff 0%, #f7faff 100%);
+    padding: 0.95rem;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
   }
 
   .tokui-course-renderer :where(input, textarea, select) {
     border-radius: 7px;
+  }
+
+  .tokui-course-renderer
+    :where(.tokui-input, .tokui-select, textarea, select, input[type='text']) {
+    border: 1px solid #d7dee8;
+    background: #ffffff;
+    color: #0f172a;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
+  }
+
+  .tokui-course-renderer
+    :where(.tokui-input:focus, .tokui-select:focus, textarea:focus, select:focus) {
+    border-color: #93c5fd;
+    box-shadow: 0 0 0 3px rgba(147, 197, 253, 0.28);
+    outline: none;
+  }
+
+  .tokui-course-renderer
+    :where([data-tokui-tag='input-tag'], .tokui-input-tag, .tokui-input-tag__box) {
+    border-radius: 8px;
+    border-color: #d7dee8;
+    background: #ffffff;
+    box-shadow: 0 6px 16px rgba(15, 23, 42, 0.05);
+  }
+
+  .tokui-course-renderer :where(.tokui-input-tag__tag) {
+    border-radius: 999px;
+    background: #f1f5f9;
+    color: #0f172a;
+    font-weight: 650;
+  }
+
+  .tokui-course-renderer :where(input[type='radio'], input[type='checkbox']) {
+    width: 1rem;
+    height: 1rem;
+    accent-color: #111827;
+  }
+
+  .tokui-course-renderer
+    :where(
+      .tokui-radio-item,
+      .tokui-checkbox-item,
+      label:has(input[type='radio']),
+      label:has(input[type='checkbox'])
+    ) {
+    display: flex;
+    min-height: 2.65rem;
+    align-items: center;
+    gap: 0.55rem;
+    border: 1px solid #dbe3ee;
+    border-radius: 8px;
+    background: #ffffff;
+    padding: 0.5rem 0.65rem;
+    color: #1f2937;
+    font-weight: 620;
+    box-shadow: 0 5px 14px rgba(15, 23, 42, 0.04);
+  }
+
+  .tokui-course-renderer
+    :where(
+      .tokui-radio-item:has(input[type='radio']:checked),
+      .tokui-checkbox-item:has(input[type='checkbox']:checked),
+      label:has(input[type='radio']:checked),
+      label:has(input[type='checkbox']:checked)
+    ) {
+    border-color: #93c5fd;
+    background: #f0f7ff;
+    color: #0f172a;
   }
 
   .tokui-course-renderer :where(textarea) {
@@ -341,6 +961,14 @@ body.listen-mode-vh-fallback #root {
   @media (max-width: 640px) {
     .tokui-course-renderer :where(form, .tokui-form, .tokui-schema-fallback) {
       padding: 0.75rem;
+    }
+
+    .tokui-course-renderer :where([data-tokui-tag='row'], .tokui-row) {
+      grid-template-columns: 1fr;
+    }
+
+    .tokui-course-renderer .tokui-row {
+      grid-template-columns: 1fr !important;
     }
 
     .tokui-course-renderer :where(th, td) {

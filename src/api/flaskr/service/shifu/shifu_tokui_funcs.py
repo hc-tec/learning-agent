@@ -81,7 +81,23 @@ TokUI DSL best practices from the parser/docs:
 - Use supported teaching layout intentionally: `[row]`/`[col]` for comparisons,
   `[table]`/`[thead]`/`[tbody]`/`[tr]` for aligned facts, `[steps]`/`[step]`
   for sequences, `[callout]` for key judgments, and `[card]` for a focused
-  teaching block. Do not invent unknown visual tags.
+  teaching block. Use `[timeline]` for route/time arrangements, `[tabs]` for
+  day/module switching, `[collapse]` for optional details, and `[input-tag]`
+  when the learner edits a selected list. Do not invent unknown visual tags.
+- TokUI tables do not use HTML-style `[td]` or `[th]` tags. Write table headers
+  as `[thead cols:"类型,速度,功能,数智化侧重"]` and rows as comma-separated
+  `[tr "高速铁路,250-350 km/h,长途纯客运,智能运维"]`. If any cell contains
+  spaces, commas, pipes, or punctuation-heavy text, quote the entire row body.
+- For comparison teaching that should look like a reference image or A2UI panel,
+  prefer `[row]` with several `[col]` cards containing `[badge]`, `[tag]`, short
+  `[p]` lines, and one clear visual hierarchy. Use `[table]` only when a real
+  aligned grid is more readable than cards.
+- Text is allowed and often necessary, but do not confuse structured tags with
+  good visual teaching. When the concept benefits from a reference-picture-like
+  UI, compose one from supported TokUI primitives: comparison cards, candidate
+  lists, timeline cards, parameter tables, selected chips/tags, or decision
+  panels. The result should feel like a small teaching app embedded in the
+  lesson, not only an article with controls.
 - For learner questions, use supported form controls:
   `[textarea n:field_id l:"问题" ph:"写下你的理解"][/textarea]`,
   `[radio n:field_id l:"问题" v:vertical opt:"a:选项A;b:选项B"]`,
@@ -552,12 +568,16 @@ def _build_generation_prompt(
     presentation_policy = (
         "- For an initial learner runtime block with complex teacher design "
         "(multiple material placements, multiple media refs, multiple interaction "
-        "points, or a long teaching guide), the DSL MUST include at least one "
-        "supported structural teaching element: `[callout]`, `[table]`, `[row]`, "
-        "`[steps]`, or `[desc]`. When the lesson compares 3 or more categories, "
-        "use `[table]` or `[row]`/`[col]` before the first checkpoint so the "
-        "student can scan differences instead of reading only paragraphs. This is "
-        "a runtime contract, not a style suggestion.\n"
+        "points, or a long teaching guide), the DSL may include normal explanatory "
+        "text, but it MUST also include at least one reference-picture-like UI panel "
+        "built from supported TokUI tags: `[table]`, `[row]`/`[col]`, `[steps]`, "
+        "`[desc]`, `[tag]`, `[badge]`, `[btngroup]`, `[timeline]`, `[tabs]`, "
+        "`[collapse]`, `[input-tag]`, `[radio]`, or `[checkbox]`. "
+        "When the lesson compares 3 or more categories, use `[table]` or "
+        "`[row]`/`[col]` before the first checkpoint. When the lesson has time/order "
+        "or process structure, use `[steps]` or `[timeline]`. When the learner must choose among "
+        "candidates, use chips/tags/badges and real choice controls. This is a "
+        "runtime contract, not a style suggestion.\n"
     )
     material_policy = (
         "- The teacher provided structured material placements. Use their "
@@ -578,9 +598,11 @@ def _build_generation_prompt(
             "_retry or _clarification. If the error says the continuation is missing "
             "answer-quality feedback, make the first DSL block an explicit feedback card "
             "using \"回答正确\", \"存在误区\", \"回答不够具体\", or \"答非所问\" before any new teaching. "
-            "If the error code is TokuiPresentationMissingStructure, rewrite the "
-            "initial lesson block with `[callout]`, `[table]`, `[row]`, `[steps]`, "
-            "or `[desc]` while keeping supported tags only; for comparison-heavy "
+            "If the error code is TokuiPresentationMissingStructure, keep useful "
+            "text but add a reference-picture-like UI panel with supported tags "
+            "such as `[table]`, `[row]`/`[col]`, `[steps]`, `[desc]`, `[tag]`, "
+            "`[badge]`, `[btngroup]`, `[timeline]`, `[tabs]`, `[collapse]`, "
+            "`[input-tag]`, `[radio]`, or `[checkbox]`. For comparison-heavy "
             "lessons, use a table or row/col comparison before the checkpoint. "
             "Also re-check the TokUI parser footguns below before returning the repaired JSON.\n"
             f"Validation errors JSON:\n{json_dumps(validation_errors, [])}\n"
@@ -619,10 +641,12 @@ Rules:
 - Use only supported TokUI teaching tags for common lesson structure:
   `[card]`, `[p]`, `[h1]` to `[h6]`, `[callout]`, `[list]`, `[item]`,
   `[row]`, `[col]`, `[table]`, `[thead]`, `[tbody]`, `[tr]`, `[desc]`,
-  `[steps]`, `[step]`, `[tag]`, `[badge]`, `[img]`, `[video]`, `[form]`,
+  `[steps]`, `[step]`, `[timeline]`, `[tabs]`, `[tab]`, `[collapse]`,
+  `[input-tag]`, `[tag]`, `[badge]`, `[img]`, `[video]`, `[form]`,
   `[input]`, `[textarea]`, `[radio]`, `[checkbox]`, `[select]`, `[opt]`,
   `[btngroup]`, and `[btn]`.
-  Never generate `[heading]`, `[section]`, `[submit]`, or `[media]` tags.
+  Never generate `[heading]`, `[section]`, `[submit]`, `[media]`, `[td]`, or
+  `[th]` tags.
   For section titles use self-closing headings such as `[h2 二、我国铁路四大核心类型]`.
   For muted placeholder text use leaf paragraph syntax such as
   `[p v:muted 素材待提供：四类铁路实景对比短片]`; do not append `[/p]`
@@ -652,9 +676,17 @@ Rules:
   readable on mobile and avoid decorative complexity.
 - This presentation requirement is mandatory for complex lessons. If the
   teacher design contains several materials, media refs, interaction points, or
-  a detailed guide, the initial learner DSL must contain at least one of
-  `[callout]`, `[table]`, `[row]`, `[steps]`, or `[desc]`; comparison lessons
-  should use `[table]` or `[row]`/`[col]` before the first checkpoint.
+  a detailed guide, the initial learner DSL can still include explanatory text,
+  but must also contain at least one reference UI pattern using `[table]`,
+  `[row]`/`[col]`, `[steps]`, `[desc]`, `[tag]`, `[badge]`, `[btngroup]`,
+  `[timeline]`, `[tabs]`, `[collapse]`, `[input-tag]`, `[radio]`, or
+  `[checkbox]`. Think in terms of teaching reference panels:
+  a route/comparison board, option cards, a parameter table, a timeline, a
+  checklist, selected chips, or a decision panel. Avoid plain article output.
+  Prefer `[row]`/`[col]` comparison cards for A2UI-style visual teaching. If
+  you use `[table]`, use TokUI syntax: `[thead cols:"类型,速度,功能"]` and
+  comma-separated `[tr "高速铁路,250-350 km/h,长途客运"]` rows; never put
+  `[td]` or `[th]` inside a table.
 - Treat teacher_intent as the learner outcome and prompt_template as the
   teacher's detailed teaching guide. The guide may contain teaching sequence,
   examples, misconceptions, checkpoint timing, feedback rules, and standards

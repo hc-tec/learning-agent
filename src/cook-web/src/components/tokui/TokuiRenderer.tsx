@@ -90,6 +90,67 @@ const cssAttributeEscape = (value: string) => value.replace(/["\\]/g, '\\$&');
 const tokuiAttrEscape = (value: string) =>
   value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 
+const cleanTokuiTableCell = (value: string) =>
+  String(value || '')
+    .replace(/\[[^\]]+\]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, "'")
+    .replace(/\[/g, '(')
+    .replace(/\]/g, ')');
+
+const extractHtmlStyleCells = (rowBody: string, cellTag: 'td' | 'th') => {
+  const cells = Array.from(
+    rowBody.matchAll(
+      new RegExp(`\\[${cellTag}\\b[^\\]]*\\]([\\s\\S]*?)\\[/${cellTag}\\]`, 'gi'),
+    ),
+  ).map(match => cleanTokuiTableCell(match[1] || ''));
+  if (cells.length > 0) {
+    return cells.filter(Boolean);
+  }
+  return Array.from(
+    rowBody.matchAll(new RegExp(`\\[${cellTag}\\s+([^\\]]+)\\]`, 'gi')),
+  )
+    .map(match => cleanTokuiTableCell(match[1] || ''))
+    .filter(Boolean);
+};
+
+const extractHtmlStyleRows = (tableBody: string, cellTag: 'td' | 'th') =>
+  Array.from(tableBody.matchAll(/\[tr\b[^\]]*\]([\s\S]*?)\[\/tr\]/gi))
+    .map(match => extractHtmlStyleCells(match[1] || '', cellTag))
+    .filter(cells => cells.length > 0);
+
+const repairHtmlStyleTableCells = (match: string, _attrs: string, body: string) => {
+  if (!/\[(td|th)(\s|\])/i.test(body)) {
+    return match;
+  }
+
+  const thead = body.match(/\[thead\b[^\]]*\]([\s\S]*?)\[\/thead\]/i)?.[1] || '';
+  const tbody = body.match(/\[tbody\b[^\]]*\]([\s\S]*?)\[\/tbody\]/i)?.[1] || body;
+  const headers = extractHtmlStyleRows(thead, 'th')[0] || [];
+  const rows = extractHtmlStyleRows(tbody, 'td');
+  if (rows.length === 0) {
+    return match;
+  }
+
+  const cols = rows
+    .map(row => {
+      const [title, ...cells] = row;
+      if (!title) return '';
+      const details = cells
+        .map((cell, index) => {
+          const label = headers[index + 1] || `维度 ${index + 2}`;
+          return `[p ${label}：${cell}]`;
+        })
+        .join('');
+      return `[col][badge ${title}]${details}[/col]`;
+    })
+    .filter(Boolean)
+    .join('');
+  return cols ? `[row]${cols}[/row]` : match;
+};
+
 const readLegacyTokuiAttr = (attrs: string, name: string) => {
   const pattern = new RegExp(
     `${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s\\]]+))`,
@@ -142,6 +203,7 @@ const normalizeLegacyTokuiMediaTag = (attrs: string) => {
 
 export const normalizeLearnerTokuiDsl = (dsl: string) =>
   dsl
+    .replace(/\[table([^\]]*)\]([\s\S]*?)\[\/table\]/gi, repairHtmlStyleTableCells)
     .replace(/\[input\b([^\]]*)\]/gi, (match, attrs) =>
       normalizeLegacyTokuiInputTag(match, attrs),
     )
@@ -432,7 +494,7 @@ const readFieldValue = (root: HTMLDivElement, field: TokuiInteractionField) => {
 export default function TokuiRenderer({
   dsl,
   interactionSchema = [],
-  theme = 'default',
+  theme = 'modern',
   className,
   readOnly = false,
   submittedResponses = EMPTY_SUBMITTED_RESPONSES,
@@ -544,7 +606,7 @@ export function TokuiStreamingRenderer({
   chunks,
   streamKey,
   complete = false,
-  theme = 'default',
+  theme = 'modern',
   className,
 }: TokuiStreamingRendererProps) {
   const rootRef = useRef<HTMLDivElement>(null);
