@@ -63,6 +63,12 @@ TokUI UI pattern decision guide:
   containing `[badge]` titles and short labeled `[p]` facts, or a valid
   `[table]` when strict alignment matters. Each card/row must expose field
   labels such as 速度, 功能, 特点, 适用场景, 数智化侧重.
+- Multi-category deep explanation:
+  do not render each category as `[h3]` followed by several plain `[p]`
+  paragraphs. Use a type atlas instead: `[tabs]`, `[collapse]`, `[desc]`,
+  `[table]`, or `[row]`/`[col]` cards where each category exposes labeled
+  dimensions such as 定义, 速度, 特点, 代表, 数智化侧重. Long category detail
+  should be grouped into `[list]`/`[item]` or `[desc]` fields, not loose prose.
 - Process / sequence / cause-effect / route / schedule:
   use `[steps]` or `[timeline]`; each step should have a concise title and
   one action/decision, not a paragraph dump.
@@ -127,6 +133,10 @@ TokUI DSL best practices from the parser/docs:
   lists, timeline cards, parameter tables, selected chips/tags, or decision
   panels. The result should feel like a small teaching app embedded in the
   lesson, not only an article with controls.
+- Avoid the article-shaped failure mode: repeated `[h3]` headings followed by
+  multiple loose `[p]` paragraphs. For repeated category detail, use `[tabs]`,
+  `[collapse]`, `[desc]`, `[table]`, or a labeled `[row]`/`[col]` type atlas,
+  with `[list]`/`[item]` where several facts belong under one category.
 - For learner questions, use supported form controls:
   `[textarea n:field_id l:"问题" ph:"写下你的理解"][/textarea]`,
   `[radio n:field_id l:"问题" v:vertical opt:"a:选项A;b:选项B"]`,
@@ -633,6 +643,10 @@ def _build_generation_prompt(
             "_retry or _clarification. If the error says the continuation is missing "
             "answer-quality feedback, make the first DSL block an explicit feedback card "
             "using \"回答正确\", \"存在误区\", \"回答不够具体\", or \"答非所问\" before any new teaching. "
+            "If the error code is TokuiPresentationArticleShapedDetail, replace "
+            "repeated H3-plus-paragraph category sections with tabs, collapses, "
+            "desc fields, a valid table, or labeled row/col cards with lists. "
+            "Do not keep one decorative panel while the main lesson stays article-shaped. "
             "If the error code is TokuiPresentationMissingStructure, keep useful "
             "text but add a reference-picture-like UI panel with supported tags "
             "such as `[table]`, `[row]`/`[col]`, `[steps]`, `[desc]`, `[tag]`, "
@@ -722,6 +736,11 @@ Rules:
   you use `[table]`, use TokUI syntax: `[thead cols:"类型,速度,功能"]` and
   comma-separated `[tr "高速铁路,250-350 km/h,长途客运"]` rows; never put
   `[td]` or `[th]` inside a table.
+- If the source guide explains 3 or more types/categories in depth, do not
+  output a sequence of `[h3]` + loose paragraph blocks. The runtime may reject
+  that article-shaped output as `TokuiPresentationArticleShapedDetail`.
+  Convert the repeated category explanations into a type atlas, tabs,
+  collapses, desc fields, or labeled cards with lists.
 - Treat teacher_intent as the learner outcome and prompt_template as the
   teacher's detailed teaching guide. The guide may contain teaching sequence,
   examples, misconceptions, checkpoint timing, feedback rules, and standards

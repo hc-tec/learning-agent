@@ -322,6 +322,12 @@ def test_generation_prompt_includes_material_and_interaction_design_contracts():
     assert "use a reference comparison board" in prompt
     assert "Each card/row must expose field" in prompt
     assert "labels such as 速度, 功能, 特点" in prompt
+    assert "Multi-category deep explanation" in prompt
+    assert "do not render each category as `[h3]` followed by several plain `[p]`" in prompt
+    assert "Use a type atlas instead" in prompt
+    assert "定义, 速度, 特点, 代表, 数智化侧重" in prompt
+    assert "article-shaped failure mode" in prompt
+    assert "TokuiPresentationArticleShapedDetail" in prompt
     assert "Process / sequence / cause-effect / route / schedule" in prompt
     assert "Candidate selection / POI list / option filtering" in prompt
     assert "A good learner block should feel like a small teaching tool" in prompt
@@ -416,6 +422,57 @@ def test_presentation_contract_rejects_callout_without_reference_ui():
 
     assert errors
     assert errors[0]["code"] == "TokuiPresentationMissingStructure"
+
+
+def test_presentation_contract_rejects_article_shaped_detail_even_with_reference_panel():
+    errors = _presentation_contract_errors(
+        {
+            "dsl": (
+                "[card][row][col][badge tx:\"高铁\"][/col][col][badge tx:\"重载\"][/col][/row][/card]"
+                "[h3 1. 高速铁路]"
+                "[p 定义说明][p 速度说明][p 特点说明][p 代表说明]"
+                "[h3 2. 城际铁路]"
+                "[p 定义说明][p 速度说明][p 特点说明][p 代表说明]"
+                "[h3 3. 客货共线铁路]"
+                "[p 定义说明][p 速度说明][p 特点说明][p 代表说明]"
+            ),
+            "interaction_schema": [],
+        },
+        {
+            "tokui_responses": [],
+            "teacher_material_refs": [{"title": "video"}, {"title": "chart"}],
+            "teacher_interaction_points": [{"prompt": "one"}, {"prompt": "two"}],
+        },
+        {"prompt_template": "x" * 1200},
+    )
+
+    assert errors
+    assert errors[0]["code"] == "TokuiPresentationArticleShapedDetail"
+    assert "section headings followed by loose paragraphs" in errors[0]["message"]
+
+
+def test_presentation_contract_accepts_repeated_detail_with_lists():
+    errors = _presentation_contract_errors(
+        {
+            "dsl": (
+                "[card][row][col][badge tx:\"高铁\"][list][item 速度：250-350 km/h][/list][/col]"
+                "[col][badge tx:\"城际\"][list][item 速度：100-200 km/h][/list][/col]"
+                "[col][badge tx:\"重载\"][list][item 速度：80-120 km/h][/list][/col][/row][/card]"
+                "[h3 1. 高速铁路][p 引导说明]"
+                "[h3 2. 城际铁路][p 引导说明]"
+                "[h3 3. 重载铁路][p 引导说明]"
+            ),
+            "interaction_schema": [],
+        },
+        {
+            "tokui_responses": [],
+            "teacher_material_refs": [{"title": "video"}, {"title": "chart"}],
+            "teacher_interaction_points": [{"prompt": "one"}, {"prompt": "two"}],
+        },
+        {"prompt_template": "x" * 1200},
+    )
+
+    assert errors == []
 
 
 def test_presentation_contract_skips_continuation_blocks():

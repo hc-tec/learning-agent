@@ -93,6 +93,13 @@ TOKUI_REFERENCE_UI_TAGS = (
     "[checkbox",
 )
 
+TOKUI_REPEATED_DETAIL_TAGS = (
+    "[list",
+    "[desc",
+    "[collapse",
+    "[tabs",
+)
+
 TOKUI_UNSUPPORTED_PRESENTATION_TAGS = {
     "[td": "TokUI tables use `[thead cols:\"...\"]` and comma-separated `[tr ...]` rows, not HTML-style `[td]` cells.",
     "[th": "TokUI tables use `[thead cols:\"...\"]` for headers, not HTML-style `[th]` cells.",
@@ -590,6 +597,30 @@ def _count_list_items(value: Any) -> int:
     return len(value) if isinstance(value, list) else 0
 
 
+def _tokui_tag_count(dsl: str, tag: str) -> int:
+    return len(re.findall(rf"{re.escape(tag)}(?:\s|\])", dsl))
+
+
+def _article_shaped_detail_error(dsl: str) -> dict[str, Any] | None:
+    heading_count = len(re.findall(r"\[h[34](?:\s|\])", dsl))
+    paragraph_count = _tokui_tag_count(dsl, "[p")
+    repeated_detail_count = sum(
+        _tokui_tag_count(dsl, tag) for tag in TOKUI_REPEATED_DETAIL_TAGS
+    )
+    if heading_count < 3 or paragraph_count < 10 or repeated_detail_count:
+        return None
+    return {
+        "message": (
+            "Initial complex lesson output still looks like an article: several "
+            "section headings followed by loose paragraphs. Convert repeated "
+            "category detail into a type atlas, tabs, collapses, desc fields, a "
+            "valid table, or labeled cards with list/items. Do not rely on one "
+            "small reference panel while the main lesson remains H3 plus prose."
+        ),
+        "code": "TokuiPresentationArticleShapedDetail",
+    }
+
+
 def _presentation_contract_errors(
     generated: dict[str, Any],
     context_payload: dict[str, Any],
@@ -622,8 +653,14 @@ def _presentation_contract_errors(
     dsl = str(generated.get("dsl") or "").lower()
     has_structure = any(tag in dsl for tag in TOKUI_PRESENTATION_STRUCTURE_TAGS)
     has_reference_ui = any(tag in dsl for tag in TOKUI_REFERENCE_UI_TAGS)
-    if has_structure and has_reference_ui:
+    errors: list[dict[str, Any]] = []
+    article_error = _article_shaped_detail_error(dsl)
+    if article_error:
+        errors.append(article_error)
+    if has_structure and has_reference_ui and not errors:
         return []
+    if errors:
+        return errors
 
     return [
         {
