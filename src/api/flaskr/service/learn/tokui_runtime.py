@@ -152,13 +152,14 @@ def _response_to_dict(row: LearnTokuiResponse) -> dict[str, Any]:
 
 
 def _load_existing_responses(
-    user_bid: str, shifu_bid: str, outline_bid: str
+    user_bid: str, shifu_bid: str, outline_bid: str, progress_record_bid: str
 ) -> list[dict[str, Any]]:
     rows = (
         LearnTokuiResponse.query.filter(
             LearnTokuiResponse.user_bid == user_bid,
             LearnTokuiResponse.shifu_bid == shifu_bid,
             LearnTokuiResponse.outline_item_bid == outline_bid,
+            LearnTokuiResponse.progress_record_bid == progress_record_bid,
             LearnTokuiResponse.deleted == 0,
         )
         .order_by(LearnTokuiResponse.id.desc())
@@ -247,7 +248,10 @@ def _build_learner_context(
             json_loads(template.generation_options, {}).get("interaction_points")
         ),
         "tokui_responses": _load_existing_responses(
-            user_bid, shifu_bid, outline.outline_item_bid
+            user_bid,
+            shifu_bid,
+            outline.outline_item_bid,
+            progress_record.progress_record_bid,
         ),
     }
 
@@ -338,12 +342,14 @@ def _find_reusable_artifact(
     user_bid: str,
     progress_record_bid: str,
     template_hash_value: str,
+    context_hash_value: str,
 ) -> LearnTokuiArtifact | None:
     return (
         LearnTokuiArtifact.query.filter(
             LearnTokuiArtifact.user_bid == user_bid,
             LearnTokuiArtifact.progress_record_bid == progress_record_bid,
             LearnTokuiArtifact.template_hash == template_hash_value,
+            LearnTokuiArtifact.context_hash == context_hash_value,
             LearnTokuiArtifact.deleted == 0,
             LearnTokuiArtifact.validation_status == TOKUI_STATUS_VALIDATED,
         )
@@ -392,16 +398,41 @@ def _should_reuse_artifact(artifact: LearnTokuiArtifact) -> bool:
 
 def _filter_artifacts_for_chain(
     artifacts: list[LearnTokuiArtifact],
+    responses_by_artifact: dict[str, list[dict[str, Any]]] | None = None,
 ) -> list[LearnTokuiArtifact]:
     if not artifacts:
         return []
-    last_artifact_bid = artifacts[-1].tokui_artifact_bid
-    return [
-        artifact
-        for artifact in artifacts
-        if artifact.validation_status == TOKUI_STATUS_VALIDATED
-        or artifact.tokui_artifact_bid == last_artifact_bid
-    ]
+    responses_by_artifact = responses_by_artifact or {}
+    last_index = len(artifacts) - 1
+    keep_indices = {last_index}
+
+    submitted_indices = {
+        index
+        for index, artifact in enumerate(artifacts)
+        if bool(responses_by_artifact.get(artifact.tokui_artifact_bid))
+    }
+    keep_indices.update(submitted_indices)
+
+    last_validated_index: int | None = None
+    for index, artifact in reversed(list(enumerate(artifacts))):
+        if artifact.validation_status == TOKUI_STATUS_VALIDATED:
+            last_validated_index = index
+            break
+
+    if artifacts[-1].validation_status != TOKUI_STATUS_VALIDATED:
+        if last_validated_index is not None:
+            keep_indices.add(last_validated_index)
+
+    if submitted_indices:
+        first_submitted_index = min(submitted_indices)
+        for index in range(first_submitted_index - 1, -1, -1):
+            if artifacts[index].validation_status == TOKUI_STATUS_VALIDATED:
+                keep_indices.add(index)
+                break
+    elif last_validated_index is not None:
+        keep_indices.add(last_validated_index)
+
+    return [artifact for index, artifact in enumerate(artifacts) if index in keep_indices]
 
 
 def _load_artifact_chain(
@@ -426,11 +457,11 @@ def _load_artifact_chain(
         for item in artifacts
     ):
         artifacts.append(include_failed_artifact)
-    artifacts = _filter_artifacts_for_chain(artifacts)
     artifact_bids = [artifact.tokui_artifact_bid for artifact in artifacts]
     responses_by_artifact = _load_responses_by_artifact(
         user_bid=user_bid, artifact_bids=artifact_bids
     )
+    artifacts = _filter_artifacts_for_chain(artifacts, responses_by_artifact)
     return [_artifact_to_dict(artifact, responses_by_artifact) for artifact in artifacts]
 
 
@@ -467,11 +498,20 @@ def get_or_generate_tokui_artifact(
         if not outline:
             raise_error("server.shifu.outlineItemNotFound")
         progress_record = _ensure_progress_record(app, shifu_bid, outline_bid, user_bid)
+        context_payload = _build_learner_context(
+            user_bid=user_bid,
+            shifu_bid=shifu_bid,
+            outline=outline,
+            progress_record=progress_record,
+            template=template,
+        )
+        context_hash = stable_hash(context_payload)
         if not force_regenerate:
             reusable = _find_reusable_artifact(
                 user_bid=user_bid,
                 progress_record_bid=progress_record.progress_record_bid,
                 template_hash_value=template.template_hash,
+                context_hash_value=context_hash,
             )
             if reusable:
                 if _should_reuse_artifact(reusable):
@@ -485,14 +525,6 @@ def get_or_generate_tokui_artifact(
                         template_hash_value=template.template_hash,
                     )
 
-        context_payload = _build_learner_context(
-            user_bid=user_bid,
-            shifu_bid=shifu_bid,
-            outline=outline,
-            progress_record=progress_record,
-            template=template,
-        )
-        context_hash = stable_hash(context_payload)
         generation_payload = _template_to_generation_payload(template)
         repair_attempted = False
         generated: dict[str, Any] = {"dsl": "", "interaction_schema": []}

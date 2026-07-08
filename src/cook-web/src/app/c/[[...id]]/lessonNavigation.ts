@@ -7,7 +7,7 @@ export function resolveRequestedLessonId(
   lessonId?: string | null,
   urlLessonId?: string | null,
 ): string {
-  return selectedLessonId || urlLessonId || lessonId || '';
+  return urlLessonId || selectedLessonId || lessonId || '';
 }
 
 type ApplyLessonSelectionParams = {

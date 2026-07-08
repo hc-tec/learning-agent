@@ -2,8 +2,14 @@ export const shouldHideReadModeContentForLoading = ({
   isLoading,
   hasReadModeItems,
   shouldShowReadModeStreamingDots,
+  hasIndependentRuntimeContent = false,
 }: {
   isLoading: boolean;
   hasReadModeItems: boolean;
   shouldShowReadModeStreamingDots: boolean;
-}) => isLoading && !hasReadModeItems && !shouldShowReadModeStreamingDots;
+  hasIndependentRuntimeContent?: boolean;
+}) =>
+  isLoading &&
+  !hasReadModeItems &&
+  !shouldShowReadModeStreamingDots &&
+  !hasIndependentRuntimeContent;

@@ -41,6 +41,17 @@ describe('NewChatComp read mode loading gate', () => {
       }),
     ).toBe(true);
   });
+
+  it('does not hide independent TokUI runtime content during MarkdownFlow loading', () => {
+    expect(
+      shouldHideReadModeContentForLoading({
+        isLoading: true,
+        hasReadModeItems: false,
+        shouldShowReadModeStreamingDots: false,
+        hasIndependentRuntimeContent: true,
+      }),
+    ).toBe(false);
+  });
 });
 
 describe('NewChatComp mode projections', () => {

@@ -544,6 +544,13 @@ Required JSON shape:
 Rules:
 - Do not explain outside JSON.
 - Use TokUI DSL only in the dsl field.
+- Use real TokUI form syntax for learner controls. For text/number answers,
+  write inputs as `[input n:"field_id" l:"field label" t:text req]` or
+  `[input n:"field_id" l:"field label" t:number req]`, where `n` exactly
+  matches the interaction_schema `field_id`. Use `[btn tx:"提交" v:primary
+  act:submit]` for the submit button. Do not generate `[submit]`, `field_id=`,
+  `field_type=`, `label=`, or `required=true` attributes in the DSL; those names
+  belong only in JSON interaction_schema.
 - Include interaction_schema for every learner-fillable control.
 - Reuse stable field_id names derived from the learning task.
 - Treat teacher_intent as the learner outcome and prompt_template as the
@@ -558,9 +565,12 @@ Rules:
   into a clear learner-facing classroom flow, not pasted as raw instructions.
 - Reference only provided media/material URLs or IDs.
 - If teacher media refs are provided, use them where they help explain the
-  concept. For images, render an image/media element using the provided stable
-  URL or resource_id. For videos, render a video/player/media element using the
-  provided stable URL or resource_id. Never invent media URLs.
+  concept. For images with a URL, render `[img s:"provided_url" tt:"title"
+  alt:"title"]`. For videos with a URL, render `[video s:"provided_url"]`.
+  Do not generate `[media]` tags. If a teacher material placement has no usable
+  URL/resource yet, write a short learner-readable placeholder such as
+  `[p v:muted 素材待提供：素材标题]` instead of exposing empty technical attributes.
+  Never invent media URLs.
 - The output media_refs list must contain only the provided media refs that are
   actually used in the DSL.
 - Keep the output concise enough for one lesson node.

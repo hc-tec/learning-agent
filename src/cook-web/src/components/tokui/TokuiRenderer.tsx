@@ -41,6 +41,78 @@ const EMPTY_SUBMITTED_RESPONSES: TokuiResponseValue[] = [];
 
 const cssAttributeEscape = (value: string) => value.replace(/["\\]/g, '\\$&');
 
+const tokuiAttrEscape = (value: string) =>
+  value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+
+const readLegacyTokuiAttr = (attrs: string, name: string) => {
+  const pattern = new RegExp(
+    `${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s\\]]+))`,
+    'i',
+  );
+  const match = attrs.match(pattern);
+  return match?.[1] ?? match?.[2] ?? match?.[3] ?? '';
+};
+
+const normalizeLegacyTokuiInputTag = (match: string, attrs: string) => {
+  if (!/\b(field_id|field_type|label|required)\s*=/i.test(attrs)) {
+    return match;
+  }
+
+  const fieldId = readLegacyTokuiAttr(attrs, 'field_id');
+  if (!fieldId) {
+    return match;
+  }
+
+  const fieldType = readLegacyTokuiAttr(attrs, 'field_type') || 'text';
+  const label = readLegacyTokuiAttr(attrs, 'label');
+  const required = /(?:\brequired\s*=\s*(?:"true"|'true'|true|1)|\brequired\b)/i.test(
+    attrs,
+  );
+  const tokuiType = fieldType === 'number' ? 'number' : 'text';
+  const parts = [
+    `n:"${tokuiAttrEscape(fieldId)}"`,
+    `t:${tokuiType}`,
+  ];
+  if (label) {
+    parts.push(`l:"${tokuiAttrEscape(label)}"`);
+  }
+  if (required) {
+    parts.push('req');
+  }
+  return `[input ${parts.join(' ')}]`;
+};
+
+const normalizeLegacyTokuiMediaTag = (attrs: string) => {
+  const mediaType = (readLegacyTokuiAttr(attrs, 'type') || 'image').toLowerCase();
+  const url = readLegacyTokuiAttr(attrs, 'url') || readLegacyTokuiAttr(attrs, 'src');
+  const title = readLegacyTokuiAttr(attrs, 'title') || '教学素材';
+  if (!url) {
+    return `[p v:muted 素材待提供：${tokuiAttrEscape(title)}]`;
+  }
+  if (mediaType === 'video') {
+    return `[video s:"${tokuiAttrEscape(url)}"]`;
+  }
+  return `[img s:"${tokuiAttrEscape(url)}" tt:"${tokuiAttrEscape(title)}" alt:"${tokuiAttrEscape(title)}"]`;
+};
+
+export const normalizeLearnerTokuiDsl = (dsl: string) =>
+  dsl
+    .replace(
+      /\[input\b([^\]]*)\]/gi,
+      (match, attrs) => normalizeLegacyTokuiInputTag(match, attrs),
+    )
+    .replace(
+      /\[submit\b([^\]]*)\/?\]/gi,
+      (_match, attrs) => {
+        const label = readLegacyTokuiAttr(attrs, 'label') || '提交';
+        return `[btn tx:"${tokuiAttrEscape(label)}" v:primary act:submit]`;
+      },
+    )
+    .replace(
+      /\[media\b([^\]]*)\/?\]/gi,
+      (_match, attrs) => normalizeLegacyTokuiMediaTag(attrs),
+    );
+
 const isFormField = (
   element: Element | null,
 ): element is HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement =>
@@ -128,6 +200,32 @@ const applySubmittedResponses = (
   });
 };
 
+const ensureInteractionFieldNames = (
+  root: HTMLDivElement,
+  interactionSchema: TokuiInteractionField[],
+) => {
+  const fields = interactionSchema.filter(field => field.field_id);
+  if (!fields.length) return;
+  const unnamedElements = Array.from(
+    root.querySelectorAll<
+      HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+    >('input, textarea, select'),
+  ).filter(element => !element.name && !element.id);
+
+  if (
+    unnamedElements.length !== fields.length &&
+    !(unnamedElements.length === 1 && fields.length === 1)
+  ) {
+    return;
+  }
+
+  unnamedElements.forEach((element, index) => {
+    const field = fields[index] || fields[0];
+    if (!field?.field_id) return;
+    element.name = field.field_id;
+  });
+};
+
 const setReadOnlyState = (root: HTMLDivElement, readOnly: boolean) => {
   root
     .querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input, textarea')
@@ -172,10 +270,21 @@ export default function TokuiRenderer({
   onSubmitResponses,
 }: TokuiRendererProps) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const latestRenderStateRef = useRef({
+    interactionSchema,
+    readOnly,
+    submittedResponses,
+  });
+  latestRenderStateRef.current = {
+    interactionSchema,
+    readOnly,
+    submittedResponses,
+  };
 
   useLayoutEffect(() => {
     const root = rootRef.current;
     if (!root || !dsl) return;
+    const latestRenderState = latestRenderStateRef.current;
 
     root.replaceChildren();
     const ui = new TokUI({ container: root, theme });
@@ -186,10 +295,11 @@ export default function TokuiRenderer({
         // Keep rendering even if an optional theme cannot be applied.
       }
     }
-    ui.render(dsl);
+    ui.render(normalizeLearnerTokuiDsl(dsl));
+    ensureInteractionFieldNames(root, latestRenderState.interactionSchema);
     normalizeRenderedFields(root);
-    applySubmittedResponses(root, submittedResponses);
-    setReadOnlyState(root, readOnly);
+    applySubmittedResponses(root, latestRenderState.submittedResponses);
+    setReadOnlyState(root, latestRenderState.readOnly);
 
     return () => {
       try {
@@ -204,9 +314,10 @@ export default function TokuiRenderer({
   useLayoutEffect(() => {
     const root = rootRef.current;
     if (!root || !dsl) return;
+    ensureInteractionFieldNames(root, interactionSchema);
     applySubmittedResponses(root, submittedResponses);
     setReadOnlyState(root, readOnly);
-  }, [dsl, readOnly, submittedResponses]);
+  }, [dsl, interactionSchema, readOnly, submittedResponses]);
 
   const submitResponses = useCallback(() => {
     if (readOnly || !rootRef.current || !onSubmitResponses) return;
@@ -240,10 +351,15 @@ export default function TokuiRenderer({
         const trigger = target?.closest<HTMLElement>(
           '[data-tokui-act="submit"], button[data-tokui-tag="btn"].tokui-btn',
         );
+        const isSubmitAction = trigger?.matches('[data-tokui-act="submit"]');
+        const isFormButton = Boolean(trigger?.closest('form'));
+        const isLikelySubmitButton =
+          Boolean(interactionSchema.length) &&
+          /提交|submit/i.test(trigger?.textContent || '');
         if (
           trigger &&
           rootRef.current?.contains(trigger) &&
-          trigger.closest('form') &&
+          (isSubmitAction || isFormButton || isLikelySubmitButton) &&
           !(trigger instanceof HTMLButtonElement && trigger.type === 'submit')
         ) {
           submitResponses();

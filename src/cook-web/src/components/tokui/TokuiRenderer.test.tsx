@@ -1,6 +1,6 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
-import TokuiRenderer from './TokuiRenderer';
+import TokuiRenderer, { normalizeLearnerTokuiDsl } from './TokuiRenderer';
 
 jest.mock('@jboltai/tokui', () => ({
   TokUI: class {
@@ -119,14 +119,34 @@ describe('TokuiRenderer response submission', () => {
     expect(textarea.value).toBe('还没提交的答案');
   });
 
-  it('ignores TokUI buttons that are not inside a form', () => {
+  it('normalizes legacy learner DSL aliases before rendering', () => {
+    expect(
+      normalizeLearnerTokuiDsl(
+        '[input field_id="answer" field_type="text" label="你的答案" required=true][submit label="提交"]',
+      ),
+    ).toBe(
+      '[input n:"answer" t:text l:"你的答案" req][btn tx:"提交" v:primary act:submit]',
+    );
+  });
+
+  it('normalizes legacy media tags into supported TokUI nodes or placeholders', () => {
+    expect(
+      normalizeLearnerTokuiDsl(
+        '[media type="image" url="/figure.png" title="参数对比图"][media type="video" url="" title="实景短片"]',
+      ),
+    ).toBe(
+      '[img s:"/figure.png" tt:"参数对比图" alt:"参数对比图"][p v:muted 素材待提供：实景短片]',
+    );
+  });
+
+  it('ignores non-submit TokUI buttons that are not inside a form', () => {
     const handleSubmit = jest.fn();
     render(
       <TokuiRenderer
         dsl={`
           <textarea name="heavy_haul_answer">重载铁路</textarea>
           <button class="tokui-btn" type="button" data-tokui-tag="btn">
-            提交答案
+            查看提示
           </button>
         `}
         interactionSchema={[
@@ -136,7 +156,7 @@ describe('TokuiRenderer response submission', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: '提交答案' }));
+    fireEvent.click(screen.getByRole('button', { name: '查看提示' }));
 
     expect(handleSubmit).not.toHaveBeenCalled();
   });
@@ -165,6 +185,39 @@ describe('TokuiRenderer response submission', () => {
         field_id: 'answer.with.dot',
         field_type: 'text',
         value: '按 id 读取',
+      },
+    ]);
+  });
+
+  it('assigns schema field names to generated unnamed controls', () => {
+    const handleSubmit = jest.fn();
+    const { container } = render(
+      <TokuiRenderer
+        dsl={`
+          <form class="tokui-form" data-tokui-tag="form">
+            <input value="" />
+            <button class="tokui-btn" type="button" data-tokui-tag="btn">
+              提交
+            </button>
+          </form>
+        `}
+        interactionSchema={[
+          { field_id: 'heavy_haul_reason_check', field_type: 'text' },
+        ]}
+        onSubmitResponses={handleSubmit}
+      />,
+    );
+
+    const input = container.querySelector('input') as HTMLInputElement;
+    expect(input.name).toBe('heavy_haul_reason_check');
+    fireEvent.change(input, { target: { value: '高铁线路按高速客运优化' } });
+    fireEvent.click(screen.getByRole('button', { name: '提交' }));
+
+    expect(handleSubmit).toHaveBeenCalledWith([
+      {
+        field_id: 'heavy_haul_reason_check',
+        field_type: 'text',
+        value: '高铁线路按高速客运优化',
       },
     ]);
   });

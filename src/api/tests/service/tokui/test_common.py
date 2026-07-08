@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from flaskr.service.tokui.common import (
     normalize_interaction_points,
@@ -13,6 +14,7 @@ from flaskr.service.shifu.shifu_tokui_funcs import (
 )
 from flaskr.service.learn.tokui_runtime import _continuation_contract_errors
 from flaskr.service.learn.tokui_runtime import (
+    _build_learner_context,
     _filter_artifacts_for_chain,
     _has_continue_response_values,
 )
@@ -244,6 +246,13 @@ def test_generation_prompt_includes_material_and_interaction_design_contracts():
     assert "learner-facing classroom flow" in prompt
     assert "中国四类铁路核心参数对比图" in prompt
     assert "万吨列车制动健康预测" in prompt
+    assert '[input n:"field_id" l:"field label" t:text req]' in prompt
+    assert '[btn tx:"提交" v:primary' in prompt
+    assert "Do not generate `[submit]`" in prompt
+    assert '[img s:"provided_url" tt:"title"' in prompt
+    assert '[video s:"provided_url"]' in prompt
+    assert "Do not generate `[media]` tags" in prompt
+    assert "素材待提供" in prompt
 
 
 def test_generation_prompt_requires_differentiated_feedback_after_response():
@@ -358,6 +367,42 @@ def test_continue_response_detection_ignores_non_blocking_answers():
     )
 
 
+def test_learner_context_loads_tokui_responses_from_current_progress_only():
+    with patch(
+        "flaskr.service.learn.tokui_runtime._load_existing_responses",
+        return_value=[{"field_id": "current_answer", "value": "ok"}],
+    ) as load_existing_responses:
+        context = _build_learner_context(
+            user_bid="user-1",
+            shifu_bid="shifu-1",
+            outline=SimpleNamespace(
+                outline_item_bid="outline-1",
+                title="Lesson",
+                position=1,
+            ),
+            progress_record=SimpleNamespace(
+                progress_record_bid="progress-current",
+                status=602,
+                block_position=0,
+            ),
+            template=SimpleNamespace(
+                material_refs="[]",
+                media_refs="[]",
+                generation_options="{}",
+            ),
+        )
+
+    load_existing_responses.assert_called_once_with(
+        "user-1",
+        "shifu-1",
+        "outline-1",
+        "progress-current",
+    )
+    assert context["tokui_responses"] == [
+        {"field_id": "current_answer", "value": "ok"}
+    ]
+
+
 def test_artifact_chain_keeps_latest_failed_fallback_without_old_failures():
     artifacts = [
         SimpleNamespace(
@@ -382,7 +427,7 @@ def test_artifact_chain_keeps_latest_failed_fallback_without_old_failures():
     ]
 
 
-def test_artifact_chain_drops_old_failed_fallback_after_successful_continuation():
+def test_artifact_chain_keeps_submitted_history_after_successful_continuation():
     artifacts = [
         SimpleNamespace(
             tokui_artifact_bid="artifact-1",
@@ -398,9 +443,95 @@ def test_artifact_chain_drops_old_failed_fallback_after_successful_continuation(
         ),
     ]
 
-    filtered = _filter_artifacts_for_chain(artifacts)
+    filtered = _filter_artifacts_for_chain(
+        artifacts,
+        responses_by_artifact={
+            "artifact-1": [{"field_id": "checkpoint", "value": "answer"}],
+        },
+    )
 
     assert [item.tokui_artifact_bid for item in filtered] == [
         "artifact-1",
         "artifact-2",
     ]
+
+
+def test_artifact_chain_keeps_unsubmitted_prelude_before_submitted_checkpoint():
+    artifacts = [
+        SimpleNamespace(
+            tokui_artifact_bid="artifact-prelude",
+            validation_status="validated",
+        ),
+        SimpleNamespace(
+            tokui_artifact_bid="artifact-checkpoint",
+            validation_status="validated",
+        ),
+        SimpleNamespace(
+            tokui_artifact_bid="artifact-continuation",
+            validation_status="validated",
+        ),
+    ]
+
+    filtered = _filter_artifacts_for_chain(
+        artifacts,
+        responses_by_artifact={
+            "artifact-checkpoint": [{"field_id": "checkpoint", "value": "answer"}],
+        },
+    )
+
+    assert [item.tokui_artifact_bid for item in filtered] == [
+        "artifact-prelude",
+        "artifact-checkpoint",
+        "artifact-continuation",
+    ]
+
+
+def test_artifact_chain_drops_stale_unsubmitted_retry_before_submitted_checkpoint():
+    artifacts = [
+        SimpleNamespace(
+            tokui_artifact_bid="artifact-stale-retry",
+            validation_status="validated",
+        ),
+        SimpleNamespace(
+            tokui_artifact_bid="artifact-prelude",
+            validation_status="validated",
+        ),
+        SimpleNamespace(
+            tokui_artifact_bid="artifact-checkpoint",
+            validation_status="validated",
+        ),
+        SimpleNamespace(
+            tokui_artifact_bid="artifact-continuation",
+            validation_status="validated",
+        ),
+    ]
+
+    filtered = _filter_artifacts_for_chain(
+        artifacts,
+        responses_by_artifact={
+            "artifact-checkpoint": [{"field_id": "checkpoint", "value": "answer"}],
+        },
+    )
+
+    assert [item.tokui_artifact_bid for item in filtered] == [
+        "artifact-prelude",
+        "artifact-checkpoint",
+        "artifact-continuation",
+    ]
+
+
+def test_artifact_chain_drops_old_unsubmitted_validated_retries():
+    artifacts = [
+        SimpleNamespace(
+            tokui_artifact_bid="artifact-old",
+            validation_status="validated",
+        ),
+        SimpleNamespace(
+            tokui_artifact_bid="artifact-latest",
+            validation_status="validated",
+        ),
+    ]
+
+    filtered = _filter_artifacts_for_chain(artifacts)
+
+    assert [item.tokui_artifact_bid for item in filtered] == ["artifact-latest"]

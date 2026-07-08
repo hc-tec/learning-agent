@@ -582,6 +582,7 @@ export const NewChatComponents = ({
     isLoading,
     hasReadModeItems: visibleReadModeItems.length > 0,
     shouldShowReadModeStreamingDots,
+    hasIndependentRuntimeContent: Boolean(resolvedLessonId),
   });
 
   useEffect(() => {

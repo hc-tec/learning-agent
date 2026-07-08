@@ -82,15 +82,17 @@ describe('applyLessonSelection', () => {
 });
 
 describe('resolveRequestedLessonId', () => {
-  it('prefers selected lesson over store and url values', () => {
+  it('prefers url lesson over selected and store values for deep links', () => {
     expect(
       resolveRequestedLessonId('lesson-selected', 'lesson-store', 'lesson-url'),
-    ).toBe('lesson-selected');
+    ).toBe('lesson-url');
   });
 
-  it('falls back to url lesson before store lesson', () => {
-    expect(resolveRequestedLessonId('', 'lesson-store', 'lesson-url')).toBe(
-      'lesson-url',
+  it('falls back to selected lesson before store lesson', () => {
+    expect(
+      resolveRequestedLessonId('lesson-selected', 'lesson-store', ''),
+    ).toBe(
+      'lesson-selected',
     );
   });
 
