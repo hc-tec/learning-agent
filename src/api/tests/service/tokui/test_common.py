@@ -16,7 +16,6 @@ from flaskr.service.shifu.shifu_tokui_funcs import (
 )
 from flaskr.service.learn.tokui_runtime import (
     _continuation_contract_errors,
-    _presentation_contract_errors,
     _unsupported_presentation_tag_errors,
 )
 from flaskr.service.learn.tokui_runtime import (
@@ -313,7 +312,7 @@ def test_generation_prompt_includes_material_and_interaction_design_contracts():
     assert '[checkbox n:"field_id" l:"field label" v:vertical opt:"a:选项A;b:选项B"]' in prompt
     assert '[btn tx:"提交" v:primary' in prompt
     assert "Presentation quality matters" in prompt
-    assert "runtime contract, not a style suggestion" in prompt
+    assert "generation quality requirement, not decorative styling" in prompt
     assert "reference UI pattern" in prompt
     assert "reference panels" in prompt
     assert "UI pattern decision guide" in prompt
@@ -327,7 +326,6 @@ def test_generation_prompt_includes_material_and_interaction_design_contracts():
     assert "Use a type atlas instead" in prompt
     assert "定义, 速度, 特点, 代表, 数智化侧重" in prompt
     assert "article-shaped failure mode" in prompt
-    assert "TokuiPresentationArticleShapedDetail" in prompt
     assert "Process / sequence / cause-effect / route / schedule" in prompt
     assert "Candidate selection / POI list / option filtering" in prompt
     assert "A good learner block should feel like a small teaching tool" in prompt
@@ -369,127 +367,6 @@ def test_contract_rejects_html_style_table_cells():
     ]
     assert "not HTML-style `[td]` cells" in errors[0]["message"]
     assert "[thead cols" in errors[1]["message"]
-
-
-def test_presentation_contract_rejects_plain_complex_initial_output():
-    errors = _presentation_contract_errors(
-        {
-            "dsl": "[card tt:\"Railway basics\"][p Explain types.][form][textarea n:q][/textarea][/form][/card]",
-            "interaction_schema": [{"field_id": "q", "field_type": "short_text"}],
-        },
-        {
-            "tokui_responses": [],
-            "teacher_material_refs": [{"title": "video"}, {"title": "chart"}],
-            "teacher_interaction_points": [{"prompt": "one"}, {"prompt": "two"}],
-        },
-        {"prompt_template": "short guide"},
-    )
-
-    assert errors
-    assert errors[0]["code"] == "TokuiPresentationMissingStructure"
-
-
-def test_presentation_contract_accepts_structured_complex_initial_output():
-    errors = _presentation_contract_errors(
-        {
-            "dsl": "[card][callout t:info][p Key distinction][/callout][row][col][badge tx:\"TYPE\"][/col][/row][/card]",
-            "interaction_schema": [],
-        },
-        {
-            "tokui_responses": [],
-            "teacher_material_refs": [{"title": "video"}, {"title": "chart"}],
-            "teacher_interaction_points": [{"prompt": "one"}, {"prompt": "two"}],
-        },
-        {"prompt_template": "short guide"},
-    )
-
-    assert errors == []
-
-
-def test_presentation_contract_rejects_callout_without_reference_ui():
-    errors = _presentation_contract_errors(
-        {
-            "dsl": "[card][callout t:info][p Key distinction][/callout][p Continue][/card]",
-            "interaction_schema": [],
-        },
-        {
-            "tokui_responses": [],
-            "teacher_material_refs": [{"title": "video"}, {"title": "chart"}],
-            "teacher_interaction_points": [{"prompt": "one"}, {"prompt": "two"}],
-        },
-        {"prompt_template": "short guide"},
-    )
-
-    assert errors
-    assert errors[0]["code"] == "TokuiPresentationMissingStructure"
-
-
-def test_presentation_contract_rejects_article_shaped_detail_even_with_reference_panel():
-    errors = _presentation_contract_errors(
-        {
-            "dsl": (
-                "[card][row][col][badge tx:\"高铁\"][/col][col][badge tx:\"重载\"][/col][/row][/card]"
-                "[h3 1. 高速铁路]"
-                "[p 定义说明][p 速度说明][p 特点说明][p 代表说明]"
-                "[h3 2. 城际铁路]"
-                "[p 定义说明][p 速度说明][p 特点说明][p 代表说明]"
-                "[h3 3. 客货共线铁路]"
-                "[p 定义说明][p 速度说明][p 特点说明][p 代表说明]"
-            ),
-            "interaction_schema": [],
-        },
-        {
-            "tokui_responses": [],
-            "teacher_material_refs": [{"title": "video"}, {"title": "chart"}],
-            "teacher_interaction_points": [{"prompt": "one"}, {"prompt": "two"}],
-        },
-        {"prompt_template": "x" * 1200},
-    )
-
-    assert errors
-    assert errors[0]["code"] == "TokuiPresentationArticleShapedDetail"
-    assert "section headings followed by loose paragraphs" in errors[0]["message"]
-
-
-def test_presentation_contract_accepts_repeated_detail_with_lists():
-    errors = _presentation_contract_errors(
-        {
-            "dsl": (
-                "[card][row][col][badge tx:\"高铁\"][list][item 速度：250-350 km/h][/list][/col]"
-                "[col][badge tx:\"城际\"][list][item 速度：100-200 km/h][/list][/col]"
-                "[col][badge tx:\"重载\"][list][item 速度：80-120 km/h][/list][/col][/row][/card]"
-                "[h3 1. 高速铁路][p 引导说明]"
-                "[h3 2. 城际铁路][p 引导说明]"
-                "[h3 3. 重载铁路][p 引导说明]"
-            ),
-            "interaction_schema": [],
-        },
-        {
-            "tokui_responses": [],
-            "teacher_material_refs": [{"title": "video"}, {"title": "chart"}],
-            "teacher_interaction_points": [{"prompt": "one"}, {"prompt": "two"}],
-        },
-        {"prompt_template": "x" * 1200},
-    )
-
-    assert errors == []
-
-
-def test_presentation_contract_skips_continuation_blocks():
-    errors = _presentation_contract_errors(
-        {
-            "dsl": "[card tt:\"feedback\"][p Answer correct. Continue briefly.][/card]",
-            "interaction_schema": [],
-        },
-        {
-            "tokui_responses": [{"field_id": "q", "value": "answer"}],
-            "teacher_material_refs": [{"title": "video"}, {"title": "chart"}],
-            "teacher_interaction_points": [{"prompt": "one"}, {"prompt": "two"}],
-        },
-        {"prompt_template": "short guide"},
-    )
-
-    assert errors == []
 
 
 def test_generation_prompt_requires_differentiated_feedback_after_response():

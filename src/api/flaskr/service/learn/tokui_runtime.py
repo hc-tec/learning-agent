@@ -68,38 +68,6 @@ CONTINUATION_FEEDBACK_TERMS = (
     "off-topic",
 )
 
-TOKUI_PRESENTATION_STRUCTURE_TAGS = (
-    "[callout",
-    "[table",
-    "[row",
-    "[steps",
-    "[desc",
-)
-
-TOKUI_REFERENCE_UI_TAGS = (
-    "[table",
-    "[row",
-    "[col",
-    "[steps",
-    "[desc",
-    "[tag",
-    "[badge",
-    "[btngroup",
-    "[timeline",
-    "[tabs",
-    "[collapse",
-    "[input-tag",
-    "[radio",
-    "[checkbox",
-)
-
-TOKUI_REPEATED_DETAIL_TAGS = (
-    "[list",
-    "[desc",
-    "[collapse",
-    "[tabs",
-)
-
 TOKUI_UNSUPPORTED_PRESENTATION_TAGS = {
     "[td": "TokUI tables use `[thead cols:\"...\"]` and comma-separated `[tr ...]` rows, not HTML-style `[td]` cells.",
     "[th": "TokUI tables use `[thead cols:\"...\"]` for headers, not HTML-style `[th]` cells.",
@@ -593,93 +561,6 @@ def _continuation_contract_errors(
     return errors
 
 
-def _count_list_items(value: Any) -> int:
-    return len(value) if isinstance(value, list) else 0
-
-
-def _tokui_tag_count(dsl: str, tag: str) -> int:
-    return len(re.findall(rf"{re.escape(tag)}(?:\s|\])", dsl))
-
-
-def _article_shaped_detail_error(dsl: str) -> dict[str, Any] | None:
-    heading_count = len(re.findall(r"\[h[34](?:\s|\])", dsl))
-    paragraph_count = _tokui_tag_count(dsl, "[p")
-    repeated_detail_count = sum(
-        _tokui_tag_count(dsl, tag) for tag in TOKUI_REPEATED_DETAIL_TAGS
-    )
-    if heading_count < 3 or paragraph_count < 10 or repeated_detail_count:
-        return None
-    return {
-        "message": (
-            "Initial complex lesson output still looks like an article: several "
-            "section headings followed by loose paragraphs. Convert repeated "
-            "category detail into a type atlas, tabs, collapses, desc fields, a "
-            "valid table, or labeled cards with list/items. Do not rely on one "
-            "small reference panel while the main lesson remains H3 plus prose."
-        ),
-        "code": "TokuiPresentationArticleShapedDetail",
-    }
-
-
-def _presentation_contract_errors(
-    generated: dict[str, Any],
-    context_payload: dict[str, Any],
-    template_payload: dict[str, Any] | None = None,
-) -> list[dict[str, Any]]:
-    responses = context_payload.get("tokui_responses") or []
-    if isinstance(responses, list) and responses:
-        return []
-
-    material_count = _count_list_items(context_payload.get("teacher_material_refs"))
-    media_count = _count_list_items(context_payload.get("teacher_media_refs"))
-    interaction_count = _count_list_items(
-        context_payload.get("teacher_interaction_points")
-    )
-    guide_length = 0
-    if template_payload:
-        guide_length = len(
-            f"{template_payload.get('teacher_intent') or ''}\n"
-            f"{template_payload.get('prompt_template') or ''}"
-        )
-
-    if (
-        material_count < 2
-        and media_count < 2
-        and interaction_count < 2
-        and guide_length < 1000
-    ):
-        return []
-
-    dsl = str(generated.get("dsl") or "").lower()
-    has_structure = any(tag in dsl for tag in TOKUI_PRESENTATION_STRUCTURE_TAGS)
-    has_reference_ui = any(tag in dsl for tag in TOKUI_REFERENCE_UI_TAGS)
-    errors: list[dict[str, Any]] = []
-    article_error = _article_shaped_detail_error(dsl)
-    if article_error:
-        errors.append(article_error)
-    if has_structure and has_reference_ui and not errors:
-        return []
-    if errors:
-        return errors
-
-    return [
-        {
-            "message": (
-                "Initial complex lesson output did not include a meaningful visual "
-                "reference UI. Keep explanatory text where useful, but add at least "
-                "one supported reference-style TokUI panel using [table], [row]/[col], "
-                "[steps], [desc], [tag]/[badge], [btngroup], [timeline], [tabs], "
-                "[collapse], [input-tag], [radio], or [checkbox]. "
-                "For comparison content, prefer [table] or [row]/[col]. For timeline "
-                "or process content, prefer [steps]. For candidate/selection content, "
-                "prefer tags, badges, radio, checkbox, or button groups. Do not invent "
-                "unsupported visual tags."
-            ),
-            "code": "TokuiPresentationMissingStructure",
-        }
-    ]
-
-
 def _unsupported_presentation_tag_errors(
     generated: dict[str, Any],
 ) -> list[dict[str, Any]]:
@@ -718,7 +599,6 @@ def _tokui_contract_errors(
     return [
         *_unsupported_presentation_tag_errors(generated),
         *_continuation_contract_errors(generated, context_payload),
-        *_presentation_contract_errors(generated, context_payload, template_payload),
     ]
 
 

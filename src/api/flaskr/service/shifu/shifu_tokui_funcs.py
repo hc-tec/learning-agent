@@ -616,7 +616,7 @@ def _build_generation_prompt(
         "`[row]`/`[col]` before the first checkpoint. When the lesson has time/order "
         "or process structure, use `[steps]` or `[timeline]`. When the learner must choose among "
         "candidates, use chips/tags/badges and real choice controls. This is a "
-        "runtime contract, not a style suggestion.\n"
+        "generation quality requirement, not decorative styling.\n"
         "- Apply the UI pattern decision guide before writing DSL. Match the UI "
         "to the teaching job: comparison board for taxonomies, steps/timeline for "
         "processes, option panels for choices, resource/status rows for materials, "
@@ -643,16 +643,6 @@ def _build_generation_prompt(
             "_retry or _clarification. If the error says the continuation is missing "
             "answer-quality feedback, make the first DSL block an explicit feedback card "
             "using \"回答正确\", \"存在误区\", \"回答不够具体\", or \"答非所问\" before any new teaching. "
-            "If the error code is TokuiPresentationArticleShapedDetail, replace "
-            "repeated H3-plus-paragraph category sections with tabs, collapses, "
-            "desc fields, a valid table, or labeled row/col cards with lists. "
-            "Do not keep one decorative panel while the main lesson stays article-shaped. "
-            "If the error code is TokuiPresentationMissingStructure, keep useful "
-            "text but add a reference-picture-like UI panel with supported tags "
-            "such as `[table]`, `[row]`/`[col]`, `[steps]`, `[desc]`, `[tag]`, "
-            "`[badge]`, `[btngroup]`, `[timeline]`, `[tabs]`, `[collapse]`, "
-            "`[input-tag]`, `[radio]`, or `[checkbox]`. For comparison-heavy "
-            "lessons, use a table or row/col comparison before the checkpoint. "
             "Also re-check the TokUI parser footguns below before returning the repaired JSON.\n"
             f"Validation errors JSON:\n{json_dumps(validation_errors, [])}\n"
         )
@@ -737,10 +727,9 @@ Rules:
   comma-separated `[tr "高速铁路,250-350 km/h,长途客运"]` rows; never put
   `[td]` or `[th]` inside a table.
 - If the source guide explains 3 or more types/categories in depth, do not
-  output a sequence of `[h3]` + loose paragraph blocks. The runtime may reject
-  that article-shaped output as `TokuiPresentationArticleShapedDetail`.
-  Convert the repeated category explanations into a type atlas, tabs,
-  collapses, desc fields, or labeled cards with lists.
+  output a sequence of `[h3]` + loose paragraph blocks. Convert the repeated
+  category explanations into a type atlas, tabs, collapses, desc fields, or
+  labeled cards with lists.
 - Treat teacher_intent as the learner outcome and prompt_template as the
   teacher's detailed teaching guide. The guide may contain teaching sequence,
   examples, misconceptions, checkpoint timing, feedback rules, and standards
