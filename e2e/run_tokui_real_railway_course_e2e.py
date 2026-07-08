@@ -198,12 +198,12 @@ def real_material_refs() -> list[dict[str, Any]]:
 def real_interaction_points() -> list[dict[str, Any]]:
     return [
         {
-            "interaction_id": "heavy_haul_mapping_check",
+            "interaction_id": "heavy_haul_reasoning_check",
             "position": "1",
             "insertion_point": "讲完重载铁路定义、典型代表和数智化业务关系后插入",
             "kind": "feynman_check",
-            "prompt": "客户说“我们这条线要做万吨列车的制动系统健康预测”，这属于哪类铁路？",
-            "response_schema": {"field_type": "text"},
+            "prompt": "客户说“我们这条线要做万吨列车的制动系统健康预测”，这属于哪类铁路？请用一句话说明判断依据。",
+            "response_schema": {"field_type": "short_text"},
             "blocking": True,
             "continue_on_submit": True,
             "continuation_hint": "根据答案判断学生是否理解重载铁路的业务诉求，答错时补讲大宗货运、轴重和设备寿命管理。",
@@ -214,18 +214,56 @@ def real_interaction_points() -> list[dict[str, Any]]:
             "insertion_point": "讲完城际铁路的通勤属性、短站距和运营端需求后插入",
             "kind": "scenario_mapping",
             "prompt": "客户说“我们要做市域内的通勤客流预测系统”，这大概率对应哪类铁路？",
-            "response_schema": {"field_type": "text"},
+            "response_schema": {
+                "field_type": "single_choice",
+                "options": [
+                    {"value": "high_speed", "label": "高速铁路"},
+                    {"value": "intercity", "label": "城际铁路"},
+                    {"value": "mixed_passenger_freight", "label": "客货共线铁路"},
+                    {"value": "heavy_haul", "label": "重载铁路"},
+                ],
+            },
             "blocking": True,
             "continue_on_submit": True,
             "continuation_hint": "根据答案补强城际铁路和高铁的区别，尤其是站间距、公交化运营和客流预测。",
         },
         {
-            "interaction_id": "high_speed_freight_reasoning",
+            "interaction_id": "railway_type_feature_check",
             "position": "3",
+            "insertion_point": "讲完四类铁路核心特点对比表后插入",
+            "kind": "multi_select_understanding",
+            "prompt": "下面哪些特征通常能帮助你判断一个需求属于重载铁路场景？",
+            "response_schema": {
+                "field_type": "multi_choice",
+                "options": [
+                    {"value": "ten_thousand_ton_train", "label": "万吨级列车"},
+                    {"value": "bulk_cargo", "label": "煤炭、矿石等大宗货物"},
+                    {"value": "high_frequency_commute", "label": "高频公交化通勤"},
+                    {"value": "high_axle_load", "label": "大轴重和设备寿命管理"},
+                ],
+            },
+            "blocking": True,
+            "continue_on_submit": True,
+            "continuation_hint": "根据选择结果判断学生是否能把重载铁路和城际/高铁需求分开。",
+        },
+        {
+            "interaction_id": "high_speed_freight_true_false",
+            "position": "4",
+            "insertion_point": "讲完高铁只拉客、重载只拉货以及四类铁路对比后插入",
+            "kind": "true_false_misconception",
+            "prompt": "判断对错：高铁速度快，所以通常适合承担大宗货运列车运输。",
+            "response_schema": {"field_type": "true_false"},
+            "blocking": True,
+            "continue_on_submit": True,
+            "continuation_hint": "如果学生选对，确认高铁和货运需求冲突；如果选错，补讲线路平顺度、安全标准、轴重和运营组织差异。",
+        },
+        {
+            "interaction_id": "high_speed_freight_reasoning",
+            "position": "5",
             "insertion_point": "讲完高铁只拉客、重载只拉货以及四类铁路对比后插入",
             "kind": "explain_in_own_words",
             "prompt": "用自己的话讲：为什么高铁一般不跑货运列车？",
-            "response_schema": {"field_type": "text"},
+            "response_schema": {"field_type": "short_text"},
             "blocking": True,
             "continue_on_submit": True,
             "continuation_hint": "针对学生解释补充线路平顺度、安全标准、运营组织和客货需求差异。",
@@ -327,6 +365,43 @@ ANSWER_CASES = ("correct", "incorrect", "vague", "off_topic")
 
 def answer_for_field(field: dict[str, Any], index: int, answer_case: str) -> Any:
     field_text = json.dumps(field, ensure_ascii=False)
+    field_type = str(field.get("field_type") or "").strip()
+    options = field.get("options") if isinstance(field.get("options"), list) else []
+
+    def option_value_containing(*terms: str, default: str = "") -> str:
+        for option in options:
+            if not isinstance(option, dict):
+                continue
+            option_text = json.dumps(option, ensure_ascii=False)
+            if any(term in option_text for term in terms):
+                return str(option.get("value") or "")
+        return default or str(options[0].get("value") if options and isinstance(options[0], dict) else "")
+
+    if field_type == "single_choice":
+        if answer_case == "correct":
+            if "市域" in field_text or "通勤" in field_text:
+                return option_value_containing("城际", "intercity")
+            if "万吨" in field_text or "重载" in field_text:
+                return option_value_containing("重载", "heavy_haul")
+        return option_value_containing("高铁", "高速", "high_speed")
+
+    if field_type == "multi_choice":
+        if answer_case == "correct":
+            selected = [
+                option_value_containing("万吨", "ten_thousand"),
+                option_value_containing("大宗", "bulk"),
+                option_value_containing("轴重", "axle"),
+            ]
+            return [value for value in selected if value]
+        if answer_case == "incorrect":
+            return [option_value_containing("通勤", "commute")]
+        if answer_case == "vague":
+            return [option_value_containing("万吨", "ten_thousand")]
+        return []
+
+    if field_type == "true_false":
+        return answer_case == "incorrect"
+
     if answer_case == "incorrect":
         return "这肯定属于高铁，因为高铁速度最快，所以所有高级系统都应该先用在高铁。"
     if answer_case == "vague":
@@ -351,7 +426,7 @@ def build_responses(schema: list[dict[str, Any]], answer_case: str) -> list[dict
         responses.append(
             {
                 "field_id": field_id,
-                "field_type": str(field.get("field_type") or "text"),
+                "field_type": str(field.get("field_type") or "short_text"),
                 "value": answer_for_field(field, index, answer_case),
             }
         )
@@ -399,10 +474,26 @@ def run_real_course_scenario(client: ApiClient, answer_case: str) -> dict[str, A
     recorder.check(
         "teacher_design_has_real_materials_and_interactions",
         len(saved.get("material_refs") or []) == 3
-        and len(saved.get("interaction_points") or []) == 3,
-        "real lesson stores three material placements and three Feynman checks",
+        and len(saved.get("interaction_points") or []) >= 5,
+        "real lesson stores three material placements and multiple Feynman checks",
         {
             "material_refs": saved.get("material_refs"),
+            "interaction_points": saved.get("interaction_points"),
+        },
+    )
+    saved_interaction_types = {
+        str((point.get("response_schema") or {}).get("field_type") or "")
+        for point in saved.get("interaction_points") or []
+        if isinstance(point, dict)
+    }
+    recorder.check(
+        "teacher_design_has_all_rich_question_types",
+        {"short_text", "single_choice", "multi_choice", "true_false"}.issubset(
+            saved_interaction_types
+        ),
+        "real persisted teacher design must include short answer, single choice, multiple choice, and true/false checkpoints",
+        {
+            "saved_interaction_types": sorted(saved_interaction_types),
             "interaction_points": saved.get("interaction_points"),
         },
     )
@@ -454,6 +545,12 @@ def run_real_course_scenario(client: ApiClient, answer_case: str) -> dict[str, A
         len(continuing_fields_1) == 1,
         "first runtime artifact should teach to the next in-flow checkpoint, not dump all lesson interactions together",
         {"schema": schema_1, "dsl_prefix": dsl_1[:900]},
+    )
+    recorder.check(
+        "first_runtime_uses_richer_tokui_presentation",
+        count_terms(dsl_1, ["[callout", "[table", "[row", "[steps", "[desc"]) >= 1,
+        "real learner artifact should use supported TokUI structure beyond plain paragraphs",
+        {"dsl_prefix": dsl_1[:1200]},
     )
 
     responses = build_responses(schema_1, answer_case)

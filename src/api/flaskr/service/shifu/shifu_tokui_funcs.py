@@ -549,6 +549,16 @@ def _build_generation_prompt(
             "downstream check without re-explaining, or skip to the next logical point "
             "when the question is no longer pedagogically appropriate.\n"
         )
+    presentation_policy = (
+        "- For an initial learner runtime block with complex teacher design "
+        "(multiple material placements, multiple media refs, multiple interaction "
+        "points, or a long teaching guide), the DSL MUST include at least one "
+        "supported structural teaching element: `[callout]`, `[table]`, `[row]`, "
+        "`[steps]`, or `[desc]`. When the lesson compares 3 or more categories, "
+        "use `[table]` or `[row]`/`[col]` before the first checkpoint so the "
+        "student can scan differences instead of reading only paragraphs. This is "
+        "a runtime contract, not a style suggestion.\n"
+    )
     material_policy = (
         "- The teacher provided structured material placements. Use their "
         "insertion_point, title, description, purpose, media_type, and stable "
@@ -568,6 +578,10 @@ def _build_generation_prompt(
             "_retry or _clarification. If the error says the continuation is missing "
             "answer-quality feedback, make the first DSL block an explicit feedback card "
             "using \"回答正确\", \"存在误区\", \"回答不够具体\", or \"答非所问\" before any new teaching. "
+            "If the error code is TokuiPresentationMissingStructure, rewrite the "
+            "initial lesson block with `[callout]`, `[table]`, `[row]`, `[steps]`, "
+            "or `[desc]` while keeping supported tags only; for comparison-heavy "
+            "lessons, use a table or row/col comparison before the checkpoint. "
             "Also re-check the TokUI parser footguns below before returning the repaired JSON.\n"
             f"Validation errors JSON:\n{json_dumps(validation_errors, [])}\n"
         )
@@ -636,6 +650,11 @@ Rules:
   row/col cards for comparisons, steps for sequences, short lists for criteria,
   and a clear question/feedback card around each checkpoint. Keep the layout
   readable on mobile and avoid decorative complexity.
+- This presentation requirement is mandatory for complex lessons. If the
+  teacher design contains several materials, media refs, interaction points, or
+  a detailed guide, the initial learner DSL must contain at least one of
+  `[callout]`, `[table]`, `[row]`, `[steps]`, or `[desc]`; comparison lessons
+  should use `[table]` or `[row]`/`[col]` before the first checkpoint.
 - Treat teacher_intent as the learner outcome and prompt_template as the
   teacher's detailed teaching guide. The guide may contain teaching sequence,
   examples, misconceptions, checkpoint timing, feedback rules, and standards
@@ -687,6 +706,7 @@ Rules:
 
 TokUI parser/source best practices:
 {TOKUI_DSL_BEST_PRACTICES}
+{presentation_policy}
 {material_policy}
 {interaction_policy}
 {feedback_policy}

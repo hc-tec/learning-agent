@@ -67,6 +67,8 @@ CONTINUATION_FEEDBACK_TERMS = (
     "off-topic",
 )
 
+TOKUI_PRESENTATION_STRUCTURE_TAGS = ("[callout", "[table", "[row", "[steps", "[desc")
+
 TOKUI_CONVERSATION_SYSTEM_PROMPT = """
 你是同一个学生在同一节课里的长期 AI 教学对话。
 
@@ -555,6 +557,68 @@ def _continuation_contract_errors(
     return errors
 
 
+def _count_list_items(value: Any) -> int:
+    return len(value) if isinstance(value, list) else 0
+
+
+def _presentation_contract_errors(
+    generated: dict[str, Any],
+    context_payload: dict[str, Any],
+    template_payload: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    responses = context_payload.get("tokui_responses") or []
+    if isinstance(responses, list) and responses:
+        return []
+
+    material_count = _count_list_items(context_payload.get("teacher_material_refs"))
+    media_count = _count_list_items(context_payload.get("teacher_media_refs"))
+    interaction_count = _count_list_items(
+        context_payload.get("teacher_interaction_points")
+    )
+    guide_length = 0
+    if template_payload:
+        guide_length = len(
+            f"{template_payload.get('teacher_intent') or ''}\n"
+            f"{template_payload.get('prompt_template') or ''}"
+        )
+
+    if (
+        material_count < 2
+        and media_count < 2
+        and interaction_count < 2
+        and guide_length < 1000
+    ):
+        return []
+
+    dsl = str(generated.get("dsl") or "").lower()
+    if any(tag in dsl for tag in TOKUI_PRESENTATION_STRUCTURE_TAGS):
+        return []
+
+    return [
+        {
+            "message": (
+                "Initial complex lesson output used only plain blocks. Rewrite the "
+                "learner-facing TokUI with at least one supported teaching structure "
+                "tag: [callout], [table], [row], [steps], or [desc]. For comparison "
+                "content, prefer [table] or [row]/[col]. Do not invent unsupported "
+                "visual tags."
+            ),
+            "code": "TokuiPresentationMissingStructure",
+        }
+    ]
+
+
+def _tokui_contract_errors(
+    generated: dict[str, Any],
+    context_payload: dict[str, Any],
+    template_payload: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    return [
+        *_continuation_contract_errors(generated, context_payload),
+        *_presentation_contract_errors(generated, context_payload, template_payload),
+    ]
+
+
 def _artifact_to_dict(
     artifact: LearnTokuiArtifact,
     responses_by_artifact: dict[str, list[dict[str, Any]]] | None = None,
@@ -850,8 +914,8 @@ def _generate_tokui_artifact_steps(
             validation = validate_tokui_dsl(app, generated["dsl"])
             parser_version = validation.parser_version
             validation_errors = [error.to_dict() for error in validation.errors]
-            contract_errors = _continuation_contract_errors(
-                generated, context_payload
+            contract_errors = _tokui_contract_errors(
+                generated, context_payload, generation_payload
             )
             validation_errors.extend(contract_errors)
             validation_ok = validation.ok and not contract_errors
@@ -931,8 +995,8 @@ def _generate_tokui_artifact_steps(
                 validation = validate_tokui_dsl(app, generated["dsl"])
                 parser_version = validation.parser_version
                 validation_errors = [error.to_dict() for error in validation.errors]
-                contract_errors = _continuation_contract_errors(
-                    generated, context_payload
+                contract_errors = _tokui_contract_errors(
+                    generated, context_payload, generation_payload
                 )
                 validation_errors.extend(contract_errors)
                 validation_ok = validation.ok and not contract_errors

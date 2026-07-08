@@ -14,7 +14,10 @@ from flaskr.service.shifu.shifu_tokui_funcs import (
     _build_guidance_prompt,
     _template_payload_from_request,
 )
-from flaskr.service.learn.tokui_runtime import _continuation_contract_errors
+from flaskr.service.learn.tokui_runtime import (
+    _continuation_contract_errors,
+    _presentation_contract_errors,
+)
 from flaskr.service.learn.tokui_runtime import (
     _append_tokui_message,
     _build_learner_context,
@@ -309,6 +312,8 @@ def test_generation_prompt_includes_material_and_interaction_design_contracts():
     assert '[checkbox n:"field_id" l:"field label" v:vertical opt:"a:选项A;b:选项B"]' in prompt
     assert '[btn tx:"提交" v:primary' in prompt
     assert "Presentation quality matters" in prompt
+    assert "runtime contract, not a style suggestion" in prompt
+    assert "must contain at least one of" in prompt
     assert "[table]" in prompt
     assert "[steps]" in prompt
     assert "Do not generate `[submit]`" in prompt
@@ -316,6 +321,58 @@ def test_generation_prompt_includes_material_and_interaction_design_contracts():
     assert '[video s:"provided_url"]' in prompt
     assert "Do not generate `[media]` tags" in prompt
     assert "素材待提供" in prompt
+
+
+def test_presentation_contract_rejects_plain_complex_initial_output():
+    errors = _presentation_contract_errors(
+        {
+            "dsl": "[card tt:\"Railway basics\"][p Explain types.][form][textarea n:q][/textarea][/form][/card]",
+            "interaction_schema": [{"field_id": "q", "field_type": "short_text"}],
+        },
+        {
+            "tokui_responses": [],
+            "teacher_material_refs": [{"title": "video"}, {"title": "chart"}],
+            "teacher_interaction_points": [{"prompt": "one"}, {"prompt": "two"}],
+        },
+        {"prompt_template": "short guide"},
+    )
+
+    assert errors
+    assert errors[0]["code"] == "TokuiPresentationMissingStructure"
+
+
+def test_presentation_contract_accepts_structured_complex_initial_output():
+    errors = _presentation_contract_errors(
+        {
+            "dsl": "[card][callout t:info][p Key distinction][/callout][p Continue][/card]",
+            "interaction_schema": [],
+        },
+        {
+            "tokui_responses": [],
+            "teacher_material_refs": [{"title": "video"}, {"title": "chart"}],
+            "teacher_interaction_points": [{"prompt": "one"}, {"prompt": "two"}],
+        },
+        {"prompt_template": "short guide"},
+    )
+
+    assert errors == []
+
+
+def test_presentation_contract_skips_continuation_blocks():
+    errors = _presentation_contract_errors(
+        {
+            "dsl": "[card tt:\"feedback\"][p Answer correct. Continue briefly.][/card]",
+            "interaction_schema": [],
+        },
+        {
+            "tokui_responses": [{"field_id": "q", "value": "answer"}],
+            "teacher_material_refs": [{"title": "video"}, {"title": "chart"}],
+            "teacher_interaction_points": [{"prompt": "one"}, {"prompt": "two"}],
+        },
+        {"prompt_template": "short guide"},
+    )
+
+    assert errors == []
 
 
 def test_generation_prompt_requires_differentiated_feedback_after_response():
