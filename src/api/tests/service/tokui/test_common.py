@@ -16,10 +16,13 @@ from flaskr.service.shifu.shifu_tokui_funcs import (
 )
 from flaskr.service.learn.tokui_runtime import _continuation_contract_errors
 from flaskr.service.learn.tokui_runtime import (
+    _append_tokui_message,
     _build_learner_context,
+    _build_tokui_conversation_messages,
     _filter_artifacts_for_chain,
     _has_continue_response_values,
     _JsonStringFieldStreamExtractor,
+    _load_tokui_conversation_messages,
 )
 
 
@@ -303,6 +306,53 @@ def test_generation_prompt_requires_differentiated_feedback_after_response():
     assert "do not reuse an already answered field_id" in prompt
 
 
+def test_generation_prompt_uses_prior_artifacts_as_append_only_history():
+    prompt = _build_generation_prompt(
+        template_payload={
+            "teacher_intent": "学生能区分四类铁路",
+            "prompt_template": "先讲四类铁路，再根据学生答案继续讲解",
+            "generation_options": {},
+        },
+        context_payload={
+            "mode": "learner_runtime",
+            "tokui_responses": [
+                {
+                    "field_id": "heavy_haul_answer",
+                    "field_type": "text",
+                    "value": "重载铁路",
+                }
+            ],
+            "prior_tokui_artifacts": [
+                {
+                    "tokui_artifact_bid": "artifact-1",
+                    "dsl_excerpt": "[card tt:\"2. 城际铁路\"][p 已经讲过城际铁路][/card]",
+                    "submitted_responses": [
+                        {"field_id": "heavy_haul_answer", "value": "重载铁路"}
+                    ],
+                }
+            ],
+        },
+    )
+
+    assert "prior_tokui_artifacts" in prompt
+    assert "already visible above" in prompt
+    assert "do not re-teach" in prompt
+    assert "appended continuation" in prompt
+    assert "do not repeat that content just to ask the question" in prompt
+
+
+def test_tokui_conversation_messages_wrap_history_with_system_prompt():
+    messages = _build_tokui_conversation_messages(
+        history=[{"role": "assistant", "content": '{"dsl":"old"}'}],
+        prompt="generate next block",
+    )
+
+    assert messages[0]["role"] == "system"
+    assert "同一个学生" in messages[0]["content"]
+    assert messages[1] == {"role": "assistant", "content": '{"dsl":"old"}'}
+    assert messages[2] == {"role": "user", "content": "generate next block"}
+
+
 def test_continuation_contract_rejects_repeated_answered_fields():
     errors = _continuation_contract_errors(
         {
@@ -379,7 +429,10 @@ def test_learner_context_loads_tokui_responses_from_current_progress_only():
     with patch(
         "flaskr.service.learn.tokui_runtime._load_existing_responses",
         return_value=[{"field_id": "current_answer", "value": "ok"}],
-    ) as load_existing_responses:
+    ) as load_existing_responses, patch(
+        "flaskr.service.learn.tokui_runtime._load_prior_artifacts_for_generation",
+        return_value=[{"tokui_artifact_bid": "artifact-1"}],
+    ) as load_prior_artifacts:
         context = _build_learner_context(
             user_bid="user-1",
             shifu_bid="shifu-1",
@@ -397,6 +450,7 @@ def test_learner_context_loads_tokui_responses_from_current_progress_only():
                 material_refs="[]",
                 media_refs="[]",
                 generation_options="{}",
+                template_hash="template-hash",
             ),
         )
 
@@ -408,6 +462,54 @@ def test_learner_context_loads_tokui_responses_from_current_progress_only():
     )
     assert context["tokui_responses"] == [
         {"field_id": "current_answer", "value": "ok"}
+    ]
+    load_prior_artifacts.assert_called_once_with(
+        user_bid="user-1",
+        progress_record_bid="progress-current",
+        template_hash_value="template-hash",
+    )
+    assert context["prior_tokui_artifacts"] == [
+        {"tokui_artifact_bid": "artifact-1"}
+    ]
+    assert context["answered_field_ids"] == ["current_answer"]
+
+
+def test_tokui_conversation_messages_persist_and_load_in_order(app):
+    with app.app_context():
+        _append_tokui_message(
+            app,
+            role="user",
+            message_type="generation_prompt",
+            content="first prompt",
+            user_bid="user-conversation",
+            shifu_bid="shifu-conversation",
+            outline_bid="outline-conversation",
+            progress_record_bid="progress-conversation",
+            published_template_bid="template-conversation",
+            template_hash_value="hash-conversation",
+        )
+        _append_tokui_message(
+            app,
+            role="assistant",
+            message_type="assistant_generation",
+            content='{"dsl":"first answer"}',
+            user_bid="user-conversation",
+            shifu_bid="shifu-conversation",
+            outline_bid="outline-conversation",
+            progress_record_bid="progress-conversation",
+            published_template_bid="template-conversation",
+            template_hash_value="hash-conversation",
+        )
+
+        messages = _load_tokui_conversation_messages(
+            user_bid="user-conversation",
+            progress_record_bid="progress-conversation",
+            template_hash_value="hash-conversation",
+        )
+
+    assert messages == [
+        {"role": "user", "content": "first prompt"},
+        {"role": "assistant", "content": '{"dsl":"first answer"}'},
     ]
 
 

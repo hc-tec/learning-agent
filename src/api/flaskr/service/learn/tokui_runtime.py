@@ -11,11 +11,13 @@ from flaskr.service.common import raise_error, raise_param_error
 from flaskr.service.learn.models import (
     LearnProgressRecord,
     LearnTokuiArtifact,
+    LearnTokuiMessage,
     LearnTokuiResponse,
 )
 from flaskr.service.order.consts import LEARN_STATUS_IN_PROGRESS, LEARN_STATUS_RESET
 from flaskr.service.shifu.models import PublishedOutlineItem, PublishedTokuiTemplate
 from flaskr.service.shifu.shifu_tokui_funcs import (
+    _build_generation_prompt,
     iter_tokui_llm_generation,
 )
 from flaskr.service.tokui.common import (
@@ -64,6 +66,20 @@ CONTINUATION_FEEDBACK_TERMS = (
     "incomplete",
     "off-topic",
 )
+
+TOKUI_CONVERSATION_SYSTEM_PROMPT = """
+你是同一个学生在同一节课里的长期 AI 教学对话。
+
+必须遵守：
+- 把已有历史消息、prior_tokui_artifacts 和 tokui_responses 当作已经发生的课堂上下文。
+- 新输出永远是追加在旧内容之后的下一段，不是重新进入课程。
+- 不要重复已经展示过的讲解、素材占位或已回答的问题。
+- 学生回答后，先判断答案质量，再决定推进、补讲、追问或拉回原题。
+- 仍然只返回一个 JSON 对象，并把 dsl 放在第一个属性，供 TokUI 流式渲染。
+""".strip()
+
+TOKUI_CONVERSATION_HISTORY_LIMIT = 24
+TOKUI_PRIOR_ARTIFACT_DSL_LIMIT = 6000
 
 
 class _JsonStringFieldStreamExtractor:
@@ -274,6 +290,118 @@ def _load_existing_responses(
     return [_response_to_dict(row) for row in rows]
 
 
+def _load_prior_artifacts_for_generation(
+    *,
+    user_bid: str,
+    progress_record_bid: str,
+    template_hash_value: str,
+) -> list[dict[str, Any]]:
+    artifacts = (
+        LearnTokuiArtifact.query.filter(
+            LearnTokuiArtifact.user_bid == user_bid,
+            LearnTokuiArtifact.progress_record_bid == progress_record_bid,
+            LearnTokuiArtifact.template_hash == template_hash_value,
+            LearnTokuiArtifact.deleted == 0,
+            LearnTokuiArtifact.validation_status == TOKUI_STATUS_VALIDATED,
+        )
+        .order_by(LearnTokuiArtifact.id.asc())
+        .limit(50)
+        .all()
+    )
+    artifact_bids = [artifact.tokui_artifact_bid for artifact in artifacts]
+    responses_by_artifact = _load_responses_by_artifact(
+        user_bid=user_bid,
+        artifact_bids=artifact_bids,
+    )
+    prior_artifacts: list[dict[str, Any]] = []
+    for index, artifact in enumerate(artifacts, start=1):
+        submitted_responses = responses_by_artifact.get(artifact.tokui_artifact_bid)
+        if not submitted_responses:
+            continue
+        prior_artifacts.append(
+            {
+                "sequence": index,
+                "tokui_artifact_bid": artifact.tokui_artifact_bid,
+                "dsl_excerpt": (artifact.dsl or "")[:TOKUI_PRIOR_ARTIFACT_DSL_LIMIT],
+                "interaction_schema": json_loads(artifact.interaction_schema, []),
+                "submitted_responses": submitted_responses,
+            }
+        )
+    return prior_artifacts
+
+
+def _append_tokui_message(
+    app: Flask,
+    *,
+    role: str,
+    message_type: str,
+    content: str,
+    user_bid: str,
+    shifu_bid: str,
+    outline_bid: str,
+    progress_record_bid: str,
+    published_template_bid: str,
+    template_hash_value: str,
+    tokui_artifact_bid: str = "",
+    payload: dict[str, Any] | None = None,
+) -> LearnTokuiMessage:
+    message = LearnTokuiMessage()
+    message.tokui_message_bid = generate_id(app)
+    message.tokui_artifact_bid = tokui_artifact_bid
+    message.published_template_bid = published_template_bid
+    message.template_hash = template_hash_value
+    message.shifu_bid = shifu_bid
+    message.outline_item_bid = outline_bid
+    message.progress_record_bid = progress_record_bid
+    message.user_bid = user_bid
+    message.role = role
+    message.message_type = message_type
+    message.content = content
+    message.payload_json = json_dumps(payload or {}, {})
+    db.session.add(message)
+    db.session.commit()
+    return message
+
+
+def _load_tokui_conversation_messages(
+    *,
+    user_bid: str,
+    progress_record_bid: str,
+    template_hash_value: str,
+    limit: int = TOKUI_CONVERSATION_HISTORY_LIMIT,
+) -> list[dict[str, str]]:
+    rows = (
+        LearnTokuiMessage.query.filter(
+            LearnTokuiMessage.user_bid == user_bid,
+            LearnTokuiMessage.progress_record_bid == progress_record_bid,
+            LearnTokuiMessage.template_hash == template_hash_value,
+            LearnTokuiMessage.deleted == 0,
+            LearnTokuiMessage.role.in_(["user", "assistant"]),
+        )
+        .order_by(LearnTokuiMessage.id.desc())
+        .limit(limit)
+        .all()
+    )
+    messages = [
+        {"role": row.role, "content": row.content}
+        for row in reversed(rows)
+        if row.content
+    ]
+    return messages
+
+
+def _build_tokui_conversation_messages(
+    *,
+    history: list[dict[str, str]],
+    prompt: str,
+) -> list[dict[str, str]]:
+    return [
+        {"role": "system", "content": TOKUI_CONVERSATION_SYSTEM_PROMPT},
+        *history,
+        {"role": "user", "content": prompt},
+    ]
+
+
 def _load_responses_by_artifact(
     *, user_bid: str, artifact_bids: list[str]
 ) -> dict[str, list[dict[str, Any]]]:
@@ -331,6 +459,21 @@ def _build_learner_context(
     progress_record: LearnProgressRecord,
     template: PublishedTokuiTemplate,
 ) -> dict[str, Any]:
+    tokui_responses = _load_existing_responses(
+        user_bid,
+        shifu_bid,
+        outline.outline_item_bid,
+        progress_record.progress_record_bid,
+    )
+    prior_artifacts = (
+        _load_prior_artifacts_for_generation(
+            user_bid=user_bid,
+            progress_record_bid=progress_record.progress_record_bid,
+            template_hash_value=template.template_hash,
+        )
+        if tokui_responses
+        else []
+    )
     return {
         "mode": "learner_runtime",
         "user": {"user_bid": user_bid},
@@ -352,12 +495,9 @@ def _build_learner_context(
         "teacher_interaction_points": normalize_interaction_points(
             json_loads(template.generation_options, {}).get("interaction_points")
         ),
-        "tokui_responses": _load_existing_responses(
-            user_bid,
-            shifu_bid,
-            outline.outline_item_bid,
-            progress_record.progress_record_bid,
-        ),
+        "tokui_responses": tokui_responses,
+        "prior_tokui_artifacts": prior_artifacts,
+        "answered_field_ids": sorted(_response_field_ids(tokui_responses)),
     }
 
 
@@ -641,21 +781,72 @@ def _generate_tokui_artifact_steps(
         parser_version = ""
         validation_ok = False
         try:
+            prompt = _build_generation_prompt(
+                template_payload=generation_payload,
+                context_payload=context_payload,
+            )
+            history = _load_tokui_conversation_messages(
+                user_bid=user_bid,
+                progress_record_bid=progress_record.progress_record_bid,
+                template_hash_value=template.template_hash,
+            )
+            conversation_messages = _build_tokui_conversation_messages(
+                history=history,
+                prompt=prompt,
+            )
+            _append_tokui_message(
+                app,
+                role="user",
+                message_type="generation_prompt",
+                content=prompt,
+                user_bid=user_bid,
+                shifu_bid=shifu_bid,
+                outline_bid=outline_bid,
+                progress_record_bid=progress_record.progress_record_bid,
+                published_template_bid=template.published_template_bid,
+                template_hash_value=template.template_hash,
+                payload={
+                    "generation_name": "tokui_learner_runtime",
+                    "context_hash": context_hash,
+                },
+            )
             extractor = _JsonStringFieldStreamExtractor("dsl")
+            response_chunks: list[str] = []
             for event in iter_tokui_llm_generation(
                 app,
                 user_bid=user_bid,
                 outline=outline,
                 template_payload=generation_payload,
                 context_payload=context_payload,
+                conversation_messages=conversation_messages,
                 generation_name="tokui_learner_runtime",
             ):
                 if event.get("type") == "text":
-                    delta = extractor.feed(str(event.get("text") or ""))
+                    text = str(event.get("text") or "")
+                    response_chunks.append(text)
+                    delta = extractor.feed(text)
                     if delta:
                         yield {"type": "chunk", "tokui": delta}
                 elif event.get("type") == "final":
                     generated = event.get("generated") or generated
+            response_text = "".join(response_chunks) or json_dumps(generated, {})
+            if response_text:
+                _append_tokui_message(
+                    app,
+                    role="assistant",
+                    message_type="assistant_generation",
+                    content=response_text,
+                    user_bid=user_bid,
+                    shifu_bid=shifu_bid,
+                    outline_bid=outline_bid,
+                    progress_record_bid=progress_record.progress_record_bid,
+                    published_template_bid=template.published_template_bid,
+                    template_hash_value=template.template_hash,
+                    payload={
+                        "generation_name": "tokui_learner_runtime",
+                        "context_hash": context_hash,
+                    },
+                )
             validation = validate_tokui_dsl(app, generated["dsl"])
             parser_version = validation.parser_version
             validation_errors = [error.to_dict() for error in validation.errors]
@@ -668,7 +859,39 @@ def _generate_tokui_artifact_steps(
                 repair_attempted = True
                 yield {"type": "status", "status": "repairing"}
                 yield {"type": "reset"}
+                repair_prompt = _build_generation_prompt(
+                    template_payload=generation_payload,
+                    context_payload=context_payload,
+                    validation_errors=validation_errors,
+                )
+                history = _load_tokui_conversation_messages(
+                    user_bid=user_bid,
+                    progress_record_bid=progress_record.progress_record_bid,
+                    template_hash_value=template.template_hash,
+                )
+                conversation_messages = _build_tokui_conversation_messages(
+                    history=history,
+                    prompt=repair_prompt,
+                )
+                _append_tokui_message(
+                    app,
+                    role="user",
+                    message_type="repair_prompt",
+                    content=repair_prompt,
+                    user_bid=user_bid,
+                    shifu_bid=shifu_bid,
+                    outline_bid=outline_bid,
+                    progress_record_bid=progress_record.progress_record_bid,
+                    published_template_bid=template.published_template_bid,
+                    template_hash_value=template.template_hash,
+                    payload={
+                        "generation_name": "tokui_learner_runtime_repair",
+                        "context_hash": context_hash,
+                        "validation_errors": validation_errors,
+                    },
+                )
                 extractor = _JsonStringFieldStreamExtractor("dsl")
+                response_chunks = []
                 for event in iter_tokui_llm_generation(
                     app,
                     user_bid=user_bid,
@@ -676,14 +899,35 @@ def _generate_tokui_artifact_steps(
                     template_payload=generation_payload,
                     context_payload=context_payload,
                     validation_errors=validation_errors,
+                    conversation_messages=conversation_messages,
                     generation_name="tokui_learner_runtime_repair",
                 ):
                     if event.get("type") == "text":
-                        delta = extractor.feed(str(event.get("text") or ""))
+                        text = str(event.get("text") or "")
+                        response_chunks.append(text)
+                        delta = extractor.feed(text)
                         if delta:
                             yield {"type": "chunk", "tokui": delta}
                     elif event.get("type") == "final":
                         generated = event.get("generated") or generated
+                response_text = "".join(response_chunks) or json_dumps(generated, {})
+                if response_text:
+                    _append_tokui_message(
+                        app,
+                        role="assistant",
+                        message_type="assistant_repair",
+                        content=response_text,
+                        user_bid=user_bid,
+                        shifu_bid=shifu_bid,
+                        outline_bid=outline_bid,
+                        progress_record_bid=progress_record.progress_record_bid,
+                        published_template_bid=template.published_template_bid,
+                        template_hash_value=template.template_hash,
+                        payload={
+                            "generation_name": "tokui_learner_runtime_repair",
+                            "context_hash": context_hash,
+                        },
+                    )
                 validation = validate_tokui_dsl(app, generated["dsl"])
                 parser_version = validation.parser_version
                 validation_errors = [error.to_dict() for error in validation.errors]
@@ -870,6 +1114,34 @@ def save_tokui_responses(
             saved += 1
         continue_required = bool(continue_fields)
         db.session.commit()
+        if saved:
+            _append_tokui_message(
+                app,
+                role="user",
+                message_type="learner_response",
+                content=json_dumps(
+                    {
+                        "event": "learner_submitted_tokui_responses",
+                        "tokui_artifact_bid": artifact.tokui_artifact_bid,
+                        "responses": [
+                            response
+                            for response in responses
+                            if isinstance(response, dict)
+                        ],
+                        "continue_required": continue_required,
+                        "continue_fields": continue_fields,
+                    },
+                    {},
+                ),
+                user_bid=user_bid,
+                shifu_bid=shifu_bid,
+                outline_bid=outline_bid,
+                progress_record_bid=artifact.progress_record_bid,
+                published_template_bid=artifact.published_template_bid,
+                template_hash_value=artifact.template_hash,
+                tokui_artifact_bid=artifact.tokui_artifact_bid,
+                payload={"schema_hash": current_schema_hash},
+            )
         return {
             "saved": saved,
             "schema_hash": current_schema_hash,

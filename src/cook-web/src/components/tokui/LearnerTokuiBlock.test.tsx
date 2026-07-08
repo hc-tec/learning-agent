@@ -246,9 +246,6 @@ describe('LearnerTokuiBlock continuation flow', () => {
     expect(screen.getByText('第一段讲解')).toBeInTheDocument();
     expect(screen.getByDisplayValue('重载铁路')).toHaveAttribute('readonly');
     expect(screen.getByText('已提交，答案会用于后续讲解。')).toBeInTheDocument();
-    expect(
-      screen.getByText('已提交，正在根据你的回答继续讲解...'),
-    ).toBeInTheDocument();
     await waitFor(() => {
       expect(mockedStreamLearnerTokui).toHaveBeenLastCalledWith(
         expect.objectContaining({
@@ -278,6 +275,11 @@ describe('LearnerTokuiBlock continuation flow', () => {
     ).toBeInTheDocument();
     expect(screen.getByText('第一段讲解')).toBeInTheDocument();
     expect(screen.getByDisplayValue('重载铁路')).toHaveAttribute('readonly');
+    expect(
+      screen.queryByText('已提交，正在根据你的回答继续讲解...'),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText('正在准备后续讲解...')).not.toBeInTheDocument();
+    expect(screen.queryByText('正在修正互动讲解格式...')).not.toBeInTheDocument();
   });
 
   it('keeps prior content visible and shows retry fallback when continuation fails', async () => {

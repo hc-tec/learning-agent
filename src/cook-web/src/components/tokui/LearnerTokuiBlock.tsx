@@ -300,14 +300,7 @@ export default function LearnerTokuiBlock({
           setArtifacts(previous => {
             return applyArtifactResult(result, previous);
           });
-          setStreamingPreview(previous =>
-            previous ? { ...previous, complete: true } : null,
-          );
-          window.setTimeout(() => {
-            if (requestSeq === streamRequestSeqRef.current) {
-              setStreamingPreview(null);
-            }
-          }, 0);
+          setStreamingPreview(null);
           finish(result);
         };
 
@@ -432,6 +425,7 @@ export default function LearnerTokuiBlock({
           ),
         );
         if (shouldContinue) {
+          setSaving(false);
           setContinuing(true);
           await loadArtifact(true);
           return;
@@ -565,7 +559,8 @@ export default function LearnerTokuiBlock({
                     : ''
                 }
               >
-                {streamingPreview.status === 'repairing' ? (
+                {streamingPreview.status === 'repairing' &&
+                !streamingPreview.complete ? (
                   <div className='mb-2 flex items-center gap-2 text-xs text-[var(--muted-foreground)]'>
                     <Loader2 className='h-3 w-3 animate-spin' />
                     正在修正互动讲解格式...
@@ -600,7 +595,7 @@ export default function LearnerTokuiBlock({
                 ) : null}
               </div>
             ) : null}
-            {saving ? (
+            {saving || (continuing && !streamingPreview?.chunks.length) ? (
               <div className='flex items-center gap-2 text-xs text-[var(--muted-foreground)]'>
                 <Loader2 className='h-3 w-3 animate-spin' />
                 {continuing
@@ -608,7 +603,10 @@ export default function LearnerTokuiBlock({
                   : t('module.chat.tokuiSaving')}
               </div>
             ) : null}
-            {showLoading && loading && artifacts.length ? (
+            {showLoading &&
+            loading &&
+            artifacts.length &&
+            !streamingPreview?.chunks.length ? (
               <div className='flex items-center gap-2 text-xs text-[var(--muted-foreground)]'>
                 <Loader2 className='h-3 w-3 animate-spin' />
                 正在准备后续讲解...

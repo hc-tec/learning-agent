@@ -9,7 +9,7 @@ from flaskr.api.langfuse import (
     finalize_langfuse_trace,
     get_langfuse_client,
 )
-from flaskr.api.llm import invoke_llm
+from flaskr.api.llm import chat_llm, invoke_llm
 from flaskr.dao import db
 from flaskr.service.check_risk.funcs import check_text_with_risk_control
 from flaskr.service.common import raise_error, raise_param_error
@@ -524,6 +524,22 @@ def _build_generation_prompt(
             "understands why the next step changed. Do not mechanically continue as if "
             "every answer were correct.\n"
         )
+    prior_artifact_policy = ""
+    prior_artifacts = context_payload.get("prior_tokui_artifacts")
+    if isinstance(prior_artifacts, list) and prior_artifacts:
+        prior_artifact_policy = (
+            "- Runtime context includes prior_tokui_artifacts. These artifacts are "
+            "already visible above the new output in the learner page. Treat them as "
+            "the conversation history and do not re-teach, re-list, or re-render their "
+            "lesson sections, media placeholders, or answered checkpoints. The new "
+            "DSL must be an appended continuation after the latest submitted artifact: "
+            "first give answer-quality feedback, then move only to the next genuinely "
+            "uncovered teaching segment or a downstream checkpoint. If an interaction "
+            "point's insertion content is already covered in prior_tokui_artifacts, do "
+            "not repeat that content just to ask the question; either ask a concise "
+            "downstream check without re-explaining, or skip to the next logical point "
+            "when the question is no longer pedagogically appropriate.\n"
+        )
     material_policy = (
         "- The teacher provided structured material placements. Use their "
         "insertion_point, title, description, purpose, media_type, and stable "
@@ -645,6 +661,7 @@ TokUI parser/source best practices:
 {material_policy}
 {interaction_policy}
 {feedback_policy}
+{prior_artifact_policy}
 
 Teacher template JSON:
 {json_dumps(template_payload, {})}
@@ -786,6 +803,7 @@ def iter_tokui_llm_generation(
     template_payload: dict[str, Any],
     context_payload: dict[str, Any],
     validation_errors: list[dict[str, Any]] | None = None,
+    conversation_messages: list[dict[str, str]] | None = None,
     generation_name: str,
 ):
     if _is_e2e_controlled_tokui(template_payload):
@@ -820,24 +838,44 @@ def iter_tokui_llm_generation(
             },
             root_span_payload={"name": generation_name, "input": context_payload},
         )
-        chunks = invoke_llm(
-            app,
-            user_bid,
-            span,
-            model=model,
-            message=prompt,
-            json=True,
-            stream=True,
-            generation_name=generation_name,
-            usage_context=UsageContext(
-                user_bid=user_bid,
-                shifu_bid=outline.shifu_bid,
-                outline_item_bid=outline.outline_item_bid,
+        if conversation_messages:
+            chunks = chat_llm(
+                app,
+                user_bid,
+                span,
+                model=model,
+                messages=conversation_messages,
+                json=True,
+                stream=True,
+                generation_name=generation_name,
+                usage_context=UsageContext(
+                    user_bid=user_bid,
+                    shifu_bid=outline.shifu_bid,
+                    outline_item_bid=outline.outline_item_bid,
+                    usage_scene=BILL_USAGE_SCENE_DEBUG,
+                ),
                 usage_scene=BILL_USAGE_SCENE_DEBUG,
-            ),
-            usage_scene=BILL_USAGE_SCENE_DEBUG,
-            temperature=temperature,
-        )
+                temperature=temperature,
+            )
+        else:
+            chunks = invoke_llm(
+                app,
+                user_bid,
+                span,
+                model=model,
+                message=prompt,
+                json=True,
+                stream=True,
+                generation_name=generation_name,
+                usage_context=UsageContext(
+                    user_bid=user_bid,
+                    shifu_bid=outline.shifu_bid,
+                    outline_item_bid=outline.outline_item_bid,
+                    usage_scene=BILL_USAGE_SCENE_DEBUG,
+                ),
+                usage_scene=BILL_USAGE_SCENE_DEBUG,
+                temperature=temperature,
+            )
         response_chunks: list[str] = []
         for chunk in chunks:
             text = chunk.result or ""

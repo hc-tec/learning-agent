@@ -720,3 +720,117 @@ class LearnTokuiResponse(db.Model):
         onupdate=now_utc,
         comment="Last update timestamp",
     )
+
+
+class LearnTokuiMessage(db.Model):
+    """Append-only LLM conversation history for one learner TokUI lesson."""
+
+    __tablename__ = "learn_tokui_messages"
+    __table_args__ = (
+        Index(
+            "ix_learn_tokui_message_conversation",
+            "user_bid",
+            "progress_record_bid",
+            "template_hash",
+            "deleted",
+            "id",
+        ),
+        Index(
+            "ix_learn_tokui_message_artifact",
+            "tokui_artifact_bid",
+            "deleted",
+        ),
+        {"comment": "Learner TokUI LLM conversation messages"},
+    )
+
+    id = Column(BIGINT, primary_key=True, autoincrement=True)
+    tokui_message_bid = Column(
+        String(36),
+        nullable=False,
+        default="",
+        index=True,
+        comment="TokUI conversation message business identifier",
+    )
+    tokui_artifact_bid = Column(
+        String(36),
+        nullable=False,
+        default="",
+        index=True,
+        comment="Related TokUI artifact business identifier",
+    )
+    published_template_bid = Column(
+        String(36),
+        nullable=False,
+        default="",
+        index=True,
+        comment="Published TokUI template business identifier",
+    )
+    template_hash = Column(
+        String(64), nullable=False, default="", index=True, comment="Template hash"
+    )
+    shifu_bid = Column(
+        String(36),
+        nullable=False,
+        default="",
+        index=True,
+        comment="Shifu business identifier",
+    )
+    outline_item_bid = Column(
+        String(36),
+        nullable=False,
+        default="",
+        index=True,
+        comment="Outline item business identifier",
+    )
+    progress_record_bid = Column(
+        String(36),
+        nullable=False,
+        default="",
+        index=True,
+        comment="Learn progress record business identifier",
+    )
+    user_bid = Column(
+        String(36),
+        nullable=False,
+        default="",
+        index=True,
+        comment="User business identifier",
+    )
+    role = Column(
+        String(16),
+        nullable=False,
+        default="user",
+        index=True,
+        comment="LLM message role: system/user/assistant",
+    )
+    message_type = Column(
+        String(64),
+        nullable=False,
+        default="generation",
+        index=True,
+        comment="Message type: generation_prompt/assistant_generation/learner_response/repair_prompt",
+    )
+    content = Column(LONGTEXT, nullable=False, default="", comment="Message content")
+    payload_json = Column(LONGTEXT, nullable=False, default="{}", comment="Metadata JSON")
+    deleted = Column(
+        SmallInteger,
+        nullable=False,
+        default=0,
+        index=True,
+        comment="Deletion flag: 0=active, 1=deleted",
+    )
+    created_at = Column(
+        DateTime,
+        nullable=False,
+        default=now_utc,
+        server_default=func.now(),
+        comment="Creation timestamp",
+    )
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        default=now_utc,
+        server_default=func.now(),
+        onupdate=now_utc,
+        comment="Last update timestamp",
+    )
