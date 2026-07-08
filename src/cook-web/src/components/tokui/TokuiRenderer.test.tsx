@@ -14,6 +14,16 @@ jest.mock('@jboltai/tokui', () => ({
       this.container.innerHTML = dsl;
     }
 
+    startStream() {
+      this.container.innerHTML = '';
+    }
+
+    feed(chunk: string) {
+      this.container.insertAdjacentHTML('beforeend', chunk);
+    }
+
+    endStream() {}
+
     disconnect() {}
   },
   setTheme: jest.fn(),

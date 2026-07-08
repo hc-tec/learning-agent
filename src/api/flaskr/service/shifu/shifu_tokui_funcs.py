@@ -720,12 +720,43 @@ def _invoke_tokui_llm(
     validation_errors: list[dict[str, Any]] | None = None,
     generation_name: str,
 ) -> dict[str, Any]:
+    generated: dict[str, Any] | None = None
+    for event in iter_tokui_llm_generation(
+        app,
+        user_bid=user_bid,
+        outline=outline,
+        template_payload=template_payload,
+        context_payload=context_payload,
+        validation_errors=validation_errors,
+        generation_name=generation_name,
+    ):
+        if event.get("type") == "final":
+            generated = event.get("generated")
+    if generated is None:
+        raise_error("server.shifu.tokuiGenerationFailed")
+    return generated
+
+
+def iter_tokui_llm_generation(
+    app: Flask,
+    *,
+    user_bid: str,
+    outline: Any,
+    template_payload: dict[str, Any],
+    context_payload: dict[str, Any],
+    validation_errors: list[dict[str, Any]] | None = None,
+    generation_name: str,
+):
     if _is_e2e_controlled_tokui(template_payload):
-        return _build_e2e_controlled_tokui_generation(
-            template_payload=template_payload,
-            context_payload=context_payload,
-            generation_name=generation_name,
-        )
+        yield {
+            "type": "final",
+            "generated": _build_e2e_controlled_tokui_generation(
+                template_payload=template_payload,
+                context_payload=context_payload,
+                generation_name=generation_name,
+            ),
+        }
+        return
 
     model, temperature = _resolve_generation_settings(template_payload, outline)
     prompt = _build_generation_prompt(
@@ -766,8 +797,15 @@ def _invoke_tokui_llm(
             usage_scene=BILL_USAGE_SCENE_DEBUG,
             temperature=temperature,
         )
-        response_text = "".join(chunk.result for chunk in chunks if chunk.result)
-        return build_generation_payload(response_text)
+        response_chunks: list[str] = []
+        for chunk in chunks:
+            text = chunk.result or ""
+            if not text:
+                continue
+            response_chunks.append(text)
+            yield {"type": "text", "text": text}
+        response_text = "".join(response_chunks)
+        yield {"type": "final", "generated": build_generation_payload(response_text)}
     finally:
         if trace is not None:
             finalize_langfuse_trace(

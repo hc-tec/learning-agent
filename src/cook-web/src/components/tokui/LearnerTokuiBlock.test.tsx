@@ -1,7 +1,8 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import api from '@/api';
 import LearnerTokuiBlock from './LearnerTokuiBlock';
+import { streamLearnerTokui } from './learnerTokuiStream';
 
 jest.mock('@/api', () => ({
   __esModule: true,
@@ -10,6 +11,10 @@ jest.mock('@/api', () => ({
     retryLearnerTokui: jest.fn(),
     saveLearnerTokuiResponses: jest.fn(),
   },
+}));
+
+jest.mock('./learnerTokuiStream', () => ({
+  streamLearnerTokui: jest.fn(),
 }));
 
 const mockT = (key: string) => key;
@@ -36,12 +41,34 @@ jest.mock('@jboltai/tokui', () => ({
       this.container.innerHTML = dsl;
     }
 
+    startStream() {
+      this.container.innerHTML = '';
+    }
+
+    feed(chunk: string) {
+      this.container.insertAdjacentHTML('beforeend', chunk);
+    }
+
+    endStream() {}
+
     disconnect() {}
   },
   setTheme: jest.fn(),
 }));
 
 const mockedApi = api as jest.Mocked<typeof api>;
+const mockedStreamLearnerTokui =
+  streamLearnerTokui as jest.MockedFunction<typeof streamLearnerTokui>;
+
+const mockTokuiStreamFinal = (artifact: unknown) => {
+  mockedStreamLearnerTokui.mockImplementationOnce(({ onEvent, onDone }) => {
+    Promise.resolve().then(() => {
+      onEvent({ type: 'final', artifact });
+      onDone?.();
+    });
+    return { close: jest.fn() };
+  });
+};
 
 describe('LearnerTokuiBlock continuation flow', () => {
   beforeEach(() => {
@@ -60,7 +87,7 @@ describe('LearnerTokuiBlock continuation flow', () => {
         }) => void)
       | undefined;
 
-    mockedApi.getLearnerTokui.mockResolvedValue({
+    mockTokuiStreamFinal({
       enabled: true,
       artifact_chain: [
         {
@@ -93,11 +120,19 @@ describe('LearnerTokuiBlock continuation flow', () => {
       continue_required: true,
       continue_fields: ['heavy_haul_answer'],
     });
-    mockedApi.retryLearnerTokui.mockReturnValue(
-      new Promise(resolve => {
-        resolveRetry = resolve;
-      }),
-    );
+    mockedStreamLearnerTokui.mockImplementationOnce(({ onEvent, onDone }) => {
+      Promise.resolve().then(() => {
+        onEvent({
+          type: 'chunk',
+          tokui: '<section><p>正在按你的回答继续</p></section>',
+        });
+      });
+      resolveRetry = value => {
+        onEvent({ type: 'final', artifact: value });
+        onDone?.();
+      };
+      return { close: jest.fn() };
+    });
 
     render(
       <LearnerTokuiBlock shifuBid='shifu-1' outlineBid='outline-1' />,
@@ -131,14 +166,28 @@ describe('LearnerTokuiBlock continuation flow', () => {
     expect(
       screen.getByText('已提交，正在根据你的回答继续讲解...'),
     ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockedStreamLearnerTokui).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          shifuBid: 'shifu-1',
+          outlineBid: 'outline-1',
+          forceRegenerate: true,
+        }),
+      );
+    });
+    expect(
+      await screen.findByText('正在按你的回答继续'),
+    ).toBeInTheDocument();
 
-    resolveRetry?.({
-      enabled: true,
-      tokui_artifact_bid: 'artifact-2',
-      schema_hash: 'schema-2',
-      validation_status: 'validated',
-      dsl: '<section><p>第二段：根据你的回答继续讲解</p></section>',
-      interaction_schema: [],
+    await act(async () => {
+      resolveRetry?.({
+        enabled: true,
+        tokui_artifact_bid: 'artifact-2',
+        schema_hash: 'schema-2',
+        validation_status: 'validated',
+        dsl: '<section><p>第二段：根据你的回答继续讲解</p></section>',
+        interaction_schema: [],
+      });
     });
 
     expect(
@@ -149,7 +198,7 @@ describe('LearnerTokuiBlock continuation flow', () => {
   });
 
   it('keeps prior content visible and shows retry fallback when continuation fails', async () => {
-    mockedApi.getLearnerTokui.mockResolvedValue({
+    mockTokuiStreamFinal({
       enabled: true,
       tokui_artifact_bid: 'artifact-1',
       schema_hash: 'schema-1',
@@ -178,7 +227,10 @@ describe('LearnerTokuiBlock continuation flow', () => {
       continue_required: true,
       continue_fields: ['heavy_haul_answer'],
     });
-    mockedApi.retryLearnerTokui.mockRejectedValue(new Error('retry failed'));
+    mockedStreamLearnerTokui.mockImplementationOnce(({ onError }) => {
+      Promise.resolve().then(() => onError?.(new Error('retry failed')));
+      return { close: jest.fn() };
+    });
 
     render(
       <LearnerTokuiBlock shifuBid='shifu-1' outlineBid='outline-1' />,
@@ -191,9 +243,9 @@ describe('LearnerTokuiBlock continuation flow', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: '提交答案' }));
 
-    await waitFor(() => {
-      expect(mockedApi.retryLearnerTokui).toHaveBeenCalled();
-    });
+    await waitFor(() =>
+      expect(mockedStreamLearnerTokui).toHaveBeenCalledTimes(2),
+    );
 
     expect(screen.getByText('第一段讲解')).toBeInTheDocument();
     expect(screen.getByDisplayValue('重载铁路')).toHaveAttribute('readonly');
@@ -204,7 +256,7 @@ describe('LearnerTokuiBlock continuation flow', () => {
   });
 
   it('restores editable answers when saving responses fails', async () => {
-    mockedApi.getLearnerTokui.mockResolvedValue({
+    mockTokuiStreamFinal({
       enabled: true,
       tokui_artifact_bid: 'artifact-1',
       schema_hash: 'schema-1',
@@ -255,18 +307,18 @@ describe('LearnerTokuiBlock continuation flow', () => {
         }),
       );
     });
-    expect(mockedApi.getLearnerTokui).toHaveBeenCalledTimes(1);
+    expect(mockedStreamLearnerTokui).toHaveBeenCalledTimes(1);
 
     await waitFor(() => {
       const textbox = screen.getByRole('textbox') as HTMLTextAreaElement;
       expect(textbox.textContent).toBe('包含换行\n和符号 [] " 的答案');
       expect(textbox).not.toHaveAttribute('readonly');
     });
-    expect(mockedApi.retryLearnerTokui).not.toHaveBeenCalled();
+    expect(mockedStreamLearnerTokui).toHaveBeenCalledTimes(1);
   });
 
   it('ignores duplicate submit clicks while the first save is pending', async () => {
-    mockedApi.getLearnerTokui.mockResolvedValue({
+    mockTokuiStreamFinal({
       enabled: true,
       tokui_artifact_bid: 'artifact-1',
       schema_hash: 'schema-1',
@@ -310,7 +362,7 @@ describe('LearnerTokuiBlock continuation flow', () => {
   });
 
   it('renders all artifacts returned by backend artifact_chain', async () => {
-    mockedApi.getLearnerTokui.mockResolvedValue({
+    mockTokuiStreamFinal({
       enabled: true,
       artifact_chain: [
         {

@@ -42,6 +42,7 @@ from flaskr.service.learn.learn_dtos import RunElementSSEMessageDTO
 from flaskr.service.learn.tokui_runtime import (
     get_or_generate_tokui_artifact,
     save_tokui_responses,
+    stream_tokui_artifact_events,
 )
 from flaskr.util import generate_id
 from flaskr.common.shifu_context import with_shifu_context, get_shifu_context_snapshot
@@ -698,6 +699,38 @@ def register_learn_routes(app: Flask, path_prefix: str = "/api/learn") -> Flask:
                 user_bid,
                 force_regenerate=True,
             )
+        )
+
+    @app.route(
+        path_prefix + "/shifu/<shifu_bid>/outlines/<outline_bid>/tokui/stream",
+        methods=["POST"],
+    )
+    @with_shifu_context()
+    def stream_tokui_api(shifu_bid: str, outline_bid: str):
+        """
+        stream learner tokui generation
+        ---
+        tags:
+            - learn
+        """
+        user_bid = request.user.user_id
+        payload = request.get_json() or {}
+        force_regenerate = bool(payload.get("force_regenerate"))
+        return Response(
+            stream_with_context(
+                stream_tokui_artifact_events(
+                    app,
+                    shifu_bid,
+                    outline_bid,
+                    user_bid,
+                    force_regenerate=force_regenerate,
+                )
+            ),
+            mimetype="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
         )
 
     @app.route(

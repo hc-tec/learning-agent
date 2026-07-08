@@ -7,9 +7,15 @@ import api from '@/api';
 import { Button } from '@/components/ui/Button';
 import { toast } from '@/hooks/useToast';
 import TokuiRenderer, {
+  TokuiStreamingRenderer,
   TokuiInteractionField,
   TokuiResponseValue,
 } from './TokuiRenderer';
+import {
+  LearnerTokuiStreamEvent,
+  LearnerTokuiStreamHandle,
+  streamLearnerTokui,
+} from './learnerTokuiStream';
 
 type LearnerTokuiArtifact = {
   enabled?: boolean;
@@ -36,6 +42,13 @@ type LearnerTokuiBlockProps = {
 type SaveTokuiResponsesResult = {
   continue_required?: boolean;
   continue_fields?: string[];
+};
+
+type StreamingPreviewState = {
+  streamKey: string;
+  chunks: string[];
+  complete: boolean;
+  status?: string;
 };
 
 const artifactListFromResult = (
@@ -84,74 +97,183 @@ export default function LearnerTokuiBlock({
   const [continuing, setContinuing] = useState(false);
   const [error, setError] = useState('');
   const savingRef = useRef(false);
+  const activeStreamRef = useRef<LearnerTokuiStreamHandle | null>(null);
+  const streamRequestSeqRef = useRef(0);
+  const [streamingPreview, setStreamingPreview] =
+    useState<StreamingPreviewState | null>(null);
   const activeArtifact = artifacts[artifacts.length - 1] || null;
 
+  const closeActiveStream = useCallback(() => {
+    activeStreamRef.current?.close();
+    activeStreamRef.current = null;
+  }, []);
+
   const loadArtifact = useCallback(
-    async (retry = false) => {
+    (retry = false) => {
       if (!shifuBid || !outlineBid || previewMode) {
+        closeActiveStream();
         setArtifacts([]);
-        return;
+        setStreamingPreview(null);
+        return Promise.resolve(undefined);
       }
+      closeActiveStream();
+      const requestSeq = streamRequestSeqRef.current + 1;
+      streamRequestSeqRef.current = requestSeq;
       setLoading(true);
       setError('');
-      try {
-        const result = (
-          retry
-            ? await api.retryLearnerTokui({
-                shifu_bid: shifuBid,
-                outline_bid: outlineBid,
-              })
-            : await api.getLearnerTokui({
-                shifu_bid: shifuBid,
-                outline_bid: outlineBid,
-            })
-        ) as LearnerTokuiArtifact;
-        const nextArtifacts = artifactListFromResult(result);
-        setArtifacts(previous => {
-          if (
-            retry &&
-            result?.enabled &&
-            !Array.isArray(result.artifact_chain) &&
-            nextArtifacts.length
-          ) {
-            const previousBids = new Set(
-              nextArtifacts
-                .map(item => item.tokui_artifact_bid)
-                .filter(Boolean),
-            );
-            return [
-              ...previous.filter(
-                item =>
-                  isValidatedArtifact(item) &&
-                  (!item.tokui_artifact_bid ||
-                    !previousBids.has(item.tokui_artifact_bid)),
-              ),
-              ...nextArtifacts,
-            ];
+      setStreamingPreview({
+        streamKey: `${outlineBid}:${Date.now()}:${requestSeq}`,
+        chunks: [],
+        complete: false,
+      });
+
+      return new Promise<LearnerTokuiArtifact | undefined>(resolve => {
+        const finish = (result?: LearnerTokuiArtifact) => {
+          if (requestSeq !== streamRequestSeqRef.current) return;
+          activeStreamRef.current = null;
+          setLoading(false);
+          setContinuing(false);
+          resolve(result);
+        };
+
+        const handleEvent = (event: LearnerTokuiStreamEvent) => {
+          if (requestSeq !== streamRequestSeqRef.current) return;
+          if (event.type === 'chunk' && event.tokui) {
+            setStreamingPreview(previous => ({
+              streamKey:
+                previous?.streamKey || `${outlineBid}:${Date.now()}:${requestSeq}`,
+              chunks: [...(previous?.chunks || []), event.tokui || ''],
+              complete: false,
+              status: previous?.status,
+            }));
+            return;
           }
-          return nextArtifacts;
-        });
-        return result;
-      } catch {
-        const message = t('module.chat.tokuiLoadFailed');
-        setArtifacts(previous =>
-          retry && previous.length
-            ? appendFallbackArtifact(previous, message)
-            : appendFallbackArtifact([], message),
-        );
-        setError(message);
-      } finally {
-        setLoading(false);
-        setContinuing(false);
-      }
+          if (event.type === 'status') {
+            setStreamingPreview(previous => ({
+              streamKey:
+                previous?.streamKey || `${outlineBid}:${Date.now()}:${requestSeq}`,
+              chunks: previous?.chunks || [],
+              complete: previous?.complete || false,
+              status: event.status,
+            }));
+            return;
+          }
+          if (event.type === 'reset') {
+            setStreamingPreview({
+              streamKey: `${outlineBid}:${Date.now()}:${requestSeq}:repair`,
+              chunks: [],
+              complete: false,
+              status: 'repairing',
+            });
+            return;
+          }
+          if (event.type === 'error') {
+            const message = event.message || t('module.chat.tokuiLoadFailed');
+            setArtifacts(previous =>
+              retry && previous.length
+                ? appendFallbackArtifact(previous, message)
+                : appendFallbackArtifact([], message),
+            );
+            setStreamingPreview(null);
+            setError(message);
+            finish();
+            return;
+          }
+          if (event.type !== 'final') return;
+
+          const result = event.artifact as LearnerTokuiArtifact;
+          const nextArtifacts = artifactListFromResult(result);
+          setArtifacts(previous => {
+            if (
+              retry &&
+              result?.enabled &&
+              !Array.isArray(result.artifact_chain) &&
+              nextArtifacts.length
+            ) {
+              const previousBids = new Set(
+                nextArtifacts
+                  .map(item => item.tokui_artifact_bid)
+                  .filter(Boolean),
+              );
+              return [
+                ...previous.filter(
+                  item =>
+                    isValidatedArtifact(item) &&
+                    (!item.tokui_artifact_bid ||
+                      !previousBids.has(item.tokui_artifact_bid)),
+                ),
+                ...nextArtifacts,
+              ];
+            }
+            return nextArtifacts;
+          });
+          setStreamingPreview(previous =>
+            previous ? { ...previous, complete: true } : null,
+          );
+          window.setTimeout(() => {
+            if (requestSeq === streamRequestSeqRef.current) {
+              setStreamingPreview(null);
+            }
+          }, 0);
+          finish(result);
+        };
+
+        try {
+          activeStreamRef.current = streamLearnerTokui({
+            shifuBid,
+            outlineBid,
+            forceRegenerate: retry,
+            onEvent: handleEvent,
+            onDone: () => {
+              if (requestSeq !== streamRequestSeqRef.current) return;
+              setStreamingPreview(previous =>
+                previous ? { ...previous, complete: true } : null,
+              );
+            },
+            onError: errorEvent => {
+              if (requestSeq !== streamRequestSeqRef.current) return;
+              const message = t('module.chat.tokuiLoadFailed');
+              setArtifacts(previous =>
+                retry && previous.length
+                  ? appendFallbackArtifact(previous, message)
+                  : appendFallbackArtifact([], message),
+              );
+              setStreamingPreview(null);
+              setError(message);
+              finish();
+              if (process.env.NODE_ENV !== 'test') {
+                console.error('[TokUI learner stream error]', errorEvent);
+              }
+            },
+          });
+        } catch (streamError) {
+          const message = t('module.chat.tokuiLoadFailed');
+          setArtifacts(previous =>
+            retry && previous.length
+              ? appendFallbackArtifact(previous, message)
+              : appendFallbackArtifact([], message),
+          );
+          setStreamingPreview(null);
+          setError(message);
+          finish();
+          if (process.env.NODE_ENV !== 'test') {
+            console.error('[TokUI learner stream setup error]', streamError);
+          }
+        }
+      });
     },
-    [outlineBid, previewMode, shifuBid, t],
+    [closeActiveStream, outlineBid, previewMode, shifuBid, t],
   );
 
   useEffect(() => {
     setArtifacts([]);
+    setStreamingPreview(null);
     void loadArtifact(false);
-  }, [loadArtifact]);
+    return () => {
+      closeActiveStream();
+      streamRequestSeqRef.current += 1;
+    };
+  }, [closeActiveStream, loadArtifact]);
 
   useEffect(() => {
     if (!loading) {
@@ -246,7 +368,10 @@ export default function LearnerTokuiBlock({
     ],
   );
 
-  if (previewMode || (!artifacts.length && !showLoading)) {
+  if (
+    previewMode ||
+    (!artifacts.length && !streamingPreview?.chunks.length && !showLoading)
+  ) {
     return null;
   }
 
@@ -257,7 +382,10 @@ export default function LearnerTokuiBlock({
       style={style}
     >
       <div className='rounded-md border border-[var(--border)] bg-[var(--card)] p-4 shadow-sm'>
-        {showLoading && loading && !artifacts.length ? (
+        {showLoading &&
+        loading &&
+        !artifacts.length &&
+        !streamingPreview?.chunks.length ? (
           <div className='flex items-center gap-2 text-sm text-[var(--muted-foreground)]'>
             <Loader2 className='h-4 w-4 animate-spin' />
             {t('module.chat.tokuiGenerating')}
@@ -324,6 +452,27 @@ export default function LearnerTokuiBlock({
                 </div>
               );
             })}
+            {streamingPreview?.chunks.length ? (
+              <div
+                className={
+                  artifacts.length
+                    ? 'border-t border-[var(--border)] pt-4'
+                    : ''
+                }
+              >
+                {streamingPreview.status === 'repairing' ? (
+                  <div className='mb-2 flex items-center gap-2 text-xs text-[var(--muted-foreground)]'>
+                    <Loader2 className='h-3 w-3 animate-spin' />
+                    正在修正互动讲解格式...
+                  </div>
+                ) : null}
+                <TokuiStreamingRenderer
+                  streamKey={streamingPreview.streamKey}
+                  chunks={streamingPreview.chunks}
+                  complete={streamingPreview.complete}
+                />
+              </div>
+            ) : null}
             {saving ? (
               <div className='flex items-center gap-2 text-xs text-[var(--muted-foreground)]'>
                 <Loader2 className='h-3 w-3 animate-spin' />

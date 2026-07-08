@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from flask import Flask
@@ -14,7 +15,9 @@ from flaskr.service.learn.models import (
 )
 from flaskr.service.order.consts import LEARN_STATUS_IN_PROGRESS, LEARN_STATUS_RESET
 from flaskr.service.shifu.models import PublishedOutlineItem, PublishedTokuiTemplate
-from flaskr.service.shifu.shifu_tokui_funcs import _invoke_tokui_llm
+from flaskr.service.shifu.shifu_tokui_funcs import (
+    iter_tokui_llm_generation,
+)
 from flaskr.service.tokui.common import (
     TOKUI_STATUS_FAILED,
     TOKUI_STATUS_FALLBACK,
@@ -61,6 +64,108 @@ CONTINUATION_FEEDBACK_TERMS = (
     "incomplete",
     "off-topic",
 )
+
+
+class _JsonStringFieldStreamExtractor:
+    """Extract one JSON string field value from a streamed JSON object."""
+
+    def __init__(self, field_name: str):
+        self.field_name = field_name
+        self.state = "scan"
+        self.in_string = False
+        self.escape = False
+        self.token = ""
+        self.last_string = ""
+        self.unicode_buffer = ""
+
+    def feed(self, chunk: str) -> str:
+        output: list[str] = []
+        for char in chunk:
+            if self.state == "done":
+                break
+            if self.state == "value":
+                decoded = self._feed_value_char(char)
+                if decoded:
+                    output.append(decoded)
+                continue
+            if self.state == "before_value":
+                if char.isspace():
+                    continue
+                if char == '"':
+                    self.state = "value"
+                    self.escape = False
+                    self.unicode_buffer = ""
+                else:
+                    self.state = "scan"
+                continue
+            if self.state == "after_key":
+                if char.isspace():
+                    continue
+                if char == ":" and self.last_string == self.field_name:
+                    self.state = "before_value"
+                    continue
+                self.state = "scan"
+            self._feed_scan_char(char)
+        return "".join(output)
+
+    def _feed_scan_char(self, char: str) -> None:
+        if not self.in_string:
+            if char == '"':
+                self.in_string = True
+                self.escape = False
+                self.token = ""
+            return
+        if self.escape:
+            self.token += self._decode_escape(char)
+            self.escape = False
+            return
+        if char == "\\":
+            self.escape = True
+            return
+        if char == '"':
+            self.in_string = False
+            self.last_string = self.token
+            self.state = "after_key"
+            return
+        self.token += char
+
+    def _feed_value_char(self, char: str) -> str:
+        if self.unicode_buffer:
+            self.unicode_buffer += char
+            if len(self.unicode_buffer) < 5:
+                return ""
+            value = self.unicode_buffer[1:]
+            self.unicode_buffer = ""
+            self.escape = False
+            try:
+                return chr(int(value, 16))
+            except ValueError:
+                return ""
+        if self.escape:
+            if char == "u":
+                self.unicode_buffer = "u"
+                return ""
+            self.escape = False
+            return self._decode_escape(char)
+        if char == "\\":
+            self.escape = True
+            return ""
+        if char == '"':
+            self.state = "done"
+            return ""
+        return char
+
+    def _decode_escape(self, char: str) -> str:
+        return {
+            '"': '"',
+            "\\": "\\",
+            "/": "/",
+            "b": "\b",
+            "f": "\f",
+            "n": "\n",
+            "r": "\r",
+            "t": "\t",
+        }.get(char, char)
 
 
 def _latest_published_template(
@@ -482,18 +587,19 @@ def _attach_artifact_chain(
     return result
 
 
-def get_or_generate_tokui_artifact(
+def _generate_tokui_artifact_steps(
     app: Flask,
     shifu_bid: str,
     outline_bid: str,
     user_bid: str,
     *,
     force_regenerate: bool = False,
-) -> dict[str, Any]:
+):
     with app.app_context():
         template = _latest_published_template(shifu_bid, outline_bid)
         if not template:
-            return {"enabled": False}
+            yield {"type": "final", "artifact": {"enabled": False}}
+            return
         outline = _latest_published_outline(shifu_bid, outline_bid)
         if not outline:
             raise_error("server.shifu.outlineItemNotFound")
@@ -513,17 +619,20 @@ def get_or_generate_tokui_artifact(
                 template_hash_value=template.template_hash,
                 context_hash_value=context_hash,
             )
-            if reusable:
-                if _should_reuse_artifact(reusable):
-                    result = _artifact_to_dict(reusable)
-                    result["enabled"] = True
-                    result["reused"] = True
-                    return _attach_artifact_chain(
+            if reusable and _should_reuse_artifact(reusable):
+                result = _artifact_to_dict(reusable)
+                result["enabled"] = True
+                result["reused"] = True
+                yield {
+                    "type": "final",
+                    "artifact": _attach_artifact_chain(
                         result,
                         user_bid=user_bid,
                         progress_record_bid=progress_record.progress_record_bid,
                         template_hash_value=template.template_hash,
-                    )
+                    ),
+                }
+                return
 
         generation_payload = _template_to_generation_payload(template)
         repair_attempted = False
@@ -532,14 +641,21 @@ def get_or_generate_tokui_artifact(
         parser_version = ""
         validation_ok = False
         try:
-            generated = _invoke_tokui_llm(
+            extractor = _JsonStringFieldStreamExtractor("dsl")
+            for event in iter_tokui_llm_generation(
                 app,
                 user_bid=user_bid,
                 outline=outline,
                 template_payload=generation_payload,
                 context_payload=context_payload,
                 generation_name="tokui_learner_runtime",
-            )
+            ):
+                if event.get("type") == "text":
+                    delta = extractor.feed(str(event.get("text") or ""))
+                    if delta:
+                        yield {"type": "chunk", "tokui": delta}
+                elif event.get("type") == "final":
+                    generated = event.get("generated") or generated
             validation = validate_tokui_dsl(app, generated["dsl"])
             parser_version = validation.parser_version
             validation_errors = [error.to_dict() for error in validation.errors]
@@ -550,7 +666,10 @@ def get_or_generate_tokui_artifact(
             validation_ok = validation.ok and not contract_errors
             if not validation_ok:
                 repair_attempted = True
-                generated = _invoke_tokui_llm(
+                yield {"type": "status", "status": "repairing"}
+                yield {"type": "reset"}
+                extractor = _JsonStringFieldStreamExtractor("dsl")
+                for event in iter_tokui_llm_generation(
                     app,
                     user_bid=user_bid,
                     outline=outline,
@@ -558,7 +677,13 @@ def get_or_generate_tokui_artifact(
                     context_payload=context_payload,
                     validation_errors=validation_errors,
                     generation_name="tokui_learner_runtime_repair",
-                )
+                ):
+                    if event.get("type") == "text":
+                        delta = extractor.feed(str(event.get("text") or ""))
+                        if delta:
+                            yield {"type": "chunk", "tokui": delta}
+                    elif event.get("type") == "final":
+                        generated = event.get("generated") or generated
                 validation = validate_tokui_dsl(app, generated["dsl"])
                 parser_version = validation.parser_version
                 validation_errors = [error.to_dict() for error in validation.errors]
@@ -605,15 +730,72 @@ def get_or_generate_tokui_artifact(
         result["enabled"] = True
         result["reused"] = False
         result["repair_attempted"] = repair_attempted
-        return _attach_artifact_chain(
-            result,
-            user_bid=user_bid,
-            progress_record_bid=progress_record.progress_record_bid,
-            template_hash_value=template.template_hash,
-            include_failed_artifact=artifact
-            if artifact.validation_status != TOKUI_STATUS_VALIDATED
-            else None,
+        yield {
+            "type": "final",
+            "artifact": _attach_artifact_chain(
+                result,
+                user_bid=user_bid,
+                progress_record_bid=progress_record.progress_record_bid,
+                template_hash_value=template.template_hash,
+                include_failed_artifact=artifact
+                if artifact.validation_status != TOKUI_STATUS_VALIDATED
+                else None,
+            ),
+        }
+
+
+def _sse_event(payload: dict[str, Any]) -> str:
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def stream_tokui_artifact_events(
+    app: Flask,
+    shifu_bid: str,
+    outline_bid: str,
+    user_bid: str,
+    *,
+    force_regenerate: bool = False,
+):
+    yield _sse_event({"type": "start"})
+    try:
+        for event in _generate_tokui_artifact_steps(
+            app,
+            shifu_bid,
+            outline_bid,
+            user_bid,
+            force_regenerate=force_regenerate,
+        ):
+            yield _sse_event(event)
+    except Exception as exc:
+        app.logger.exception("TokUI learner runtime stream failed")
+        yield _sse_event(
+            {
+                "type": "error",
+                "message": str(exc) or exc.__class__.__name__,
+            }
         )
+    yield "data: [DONE]\n\n"
+
+
+def get_or_generate_tokui_artifact(
+    app: Flask,
+    shifu_bid: str,
+    outline_bid: str,
+    user_bid: str,
+    *,
+    force_regenerate: bool = False,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {"enabled": False}
+    for event in _generate_tokui_artifact_steps(
+        app,
+        shifu_bid,
+        outline_bid,
+        user_bid,
+        force_regenerate=force_regenerate,
+    ):
+        if event.get("type") == "final":
+            result = event.get("artifact") or result
+    return result
 
 
 def save_tokui_responses(

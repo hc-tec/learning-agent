@@ -17,6 +17,7 @@ from flaskr.service.learn.tokui_runtime import (
     _build_learner_context,
     _filter_artifacts_for_chain,
     _has_continue_response_values,
+    _JsonStringFieldStreamExtractor,
 )
 
 
@@ -401,6 +402,19 @@ def test_learner_context_loads_tokui_responses_from_current_progress_only():
     assert context["tokui_responses"] == [
         {"field_id": "current_answer", "value": "ok"}
     ]
+
+
+def test_stream_extractor_emits_dsl_value_across_json_chunks():
+    extractor = _JsonStringFieldStreamExtractor("dsl")
+    chunks = [
+        '{"dsl":"[card tt:\\"',
+        '标题\\"]第一行\\n第二',
+        '行[/card]","interaction_schema":[]}',
+    ]
+
+    assert "".join(extractor.feed(chunk) for chunk in chunks) == (
+        '[card tt:"标题"]第一行\n第二行[/card]'
+    )
 
 
 def test_artifact_chain_keeps_latest_failed_fallback_without_old_failures():

@@ -30,6 +30,21 @@ type TokuiRendererProps = {
   onSubmitResponses?: (responses: TokuiResponseValue[]) => void;
 };
 
+type TokuiStreamingRendererProps = {
+  chunks: string[];
+  streamKey: string;
+  complete?: boolean;
+  theme?: string;
+  className?: string;
+};
+
+type TokuiStreamingInstance = {
+  startStream: (targetContainer?: HTMLElement) => void;
+  feed: (chunk: string) => void;
+  endStream: () => void;
+  disconnect: () => void;
+};
+
 const TOKUI_TEXT_PLACEHOLDERS = new Set([
   '请输入答案',
   '请输入你的答案',
@@ -367,5 +382,70 @@ export default function TokuiRenderer({
       }}
     >
     </div>
+  );
+}
+
+export function TokuiStreamingRenderer({
+  chunks,
+  streamKey,
+  complete = false,
+  theme = 'default',
+  className,
+}: TokuiStreamingRendererProps) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const uiRef = useRef<TokuiStreamingInstance | null>(null);
+  const fedChunkCountRef = useRef(0);
+  const completedRef = useRef(false);
+
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    root.replaceChildren();
+    const ui = new TokUI({ container: root, theme }) as TokuiStreamingInstance;
+    if (theme) {
+      try {
+        setTheme(theme);
+      } catch {
+        // Keep streaming even if an optional theme cannot be applied.
+      }
+    }
+    ui.startStream(root);
+    uiRef.current = ui;
+    fedChunkCountRef.current = 0;
+    completedRef.current = false;
+
+    return () => {
+      try {
+        ui.disconnect();
+      } catch {
+        // TokUI cleanup is best-effort; the wrapper owns the DOM reset.
+      }
+      uiRef.current = null;
+      root.replaceChildren();
+    };
+  }, [streamKey, theme]);
+
+  useLayoutEffect(() => {
+    const ui = uiRef.current;
+    if (!ui) return;
+    const nextChunks = chunks.slice(fedChunkCountRef.current);
+    nextChunks.forEach(chunk => {
+      if (chunk) {
+        ui.feed(chunk);
+      }
+    });
+    fedChunkCountRef.current = chunks.length;
+    if (complete && !completedRef.current) {
+      ui.endStream();
+      completedRef.current = true;
+    }
+  }, [chunks, complete]);
+
+  return (
+    <div
+      ref={rootRef}
+      data-testid='tokui-streaming-renderer-root'
+      className={className}
+    />
   );
 }
