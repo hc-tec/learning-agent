@@ -158,6 +158,52 @@ describe('LearnerTokuiBlock continuation flow', () => {
     ).toBeInTheDocument();
   });
 
+  it('reports an active learner interaction until the block unmounts', async () => {
+    mockTokuiStreamFinal({
+      enabled: true,
+      tokui_artifact_bid: 'artifact-1',
+      schema_hash: 'schema-1',
+      validation_status: 'validated',
+      dsl: `
+        <section>
+          <p>第一段讲解</p>
+          <form>
+            <textarea name="heavy_haul_answer">请输入你的答案</textarea>
+            <button class="tokui-btn" type="button" data-tokui-tag="btn">
+              提交答案
+            </button>
+          </form>
+        </section>
+      `,
+      interaction_schema: [
+        {
+          field_id: 'heavy_haul_answer',
+          field_type: 'text',
+          blocking: true,
+          continue_on_submit: true,
+        },
+      ],
+    });
+    const onActiveInteractionChange = jest.fn();
+
+    const { unmount } = render(
+      <LearnerTokuiBlock
+        shifuBid='shifu-1'
+        outlineBid='outline-1'
+        onActiveInteractionChange={onActiveInteractionChange}
+      />,
+    );
+
+    expect(await screen.findByText('第一段讲解')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(onActiveInteractionChange).toHaveBeenLastCalledWith(true);
+    });
+
+    unmount();
+
+    expect(onActiveInteractionChange).toHaveBeenLastCalledWith(false);
+  });
+
   it('keeps submitted content visible while appending continuation output', async () => {
     let resolveRetry:
       | ((value: {
@@ -235,7 +281,7 @@ describe('LearnerTokuiBlock continuation flow', () => {
           responses: [
             {
               field_id: 'heavy_haul_answer',
-              field_type: 'text',
+              field_type: 'short_text',
               value: '重载铁路',
             },
           ],
@@ -387,7 +433,7 @@ describe('LearnerTokuiBlock continuation flow', () => {
           responses: [
             {
               field_id: 'heavy_haul_answer',
-              field_type: 'text',
+              field_type: 'short_text',
               value: '包含换行\n和符号 [] " 的答案',
             },
           ],

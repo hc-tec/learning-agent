@@ -181,6 +181,8 @@ export const NewChatComponents = ({
     useState<HTMLDivElement | null>(null);
   const listenTtsToastShownRef = useRef(false);
   const [isListenFeedbackReady, setIsListenFeedbackReady] = useState(false);
+  const [isTokuiInteractionActive, setIsTokuiInteractionActive] =
+    useState(false);
   const listenAudioBackfillInFlightRef = useRef<Record<string, Promise<any>>>(
     {},
   );
@@ -1163,7 +1165,9 @@ export const NewChatComponents = ({
   );
 
   const lessonFeedbackPopupContent =
-    lessonFeedbackPopup.open && !(mobileStyle && isNavOpen) ? (
+    lessonFeedbackPopup.open &&
+    !isTokuiInteractionActive &&
+    !(mobileStyle && isNavOpen) ? (
       <div
         className={cn(
           'pointer-events-none z-20',
@@ -1263,6 +1267,7 @@ export const NewChatComponents = ({
                     shifuBid={shifuBid}
                     outlineBid={resolvedLessonId}
                     previewMode={previewMode}
+                    onActiveInteractionChange={setIsTokuiInteractionActive}
                     style={{
                       margin: visibleReadModeItems.length
                         ? '0 auto 24px'

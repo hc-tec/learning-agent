@@ -37,6 +37,7 @@ type LearnerTokuiBlockProps = {
   previewMode?: boolean;
   className?: string;
   style?: React.CSSProperties;
+  onActiveInteractionChange?: (active: boolean) => void;
 };
 
 type SaveTokuiResponsesResult = {
@@ -89,6 +90,7 @@ export default function LearnerTokuiBlock({
   previewMode = false,
   className,
   style,
+  onActiveInteractionChange,
 }: LearnerTokuiBlockProps) {
   const { t } = useTranslation();
   const [artifacts, setArtifacts] = useState<LearnerTokuiArtifact[]>([]);
@@ -103,7 +105,21 @@ export default function LearnerTokuiBlock({
   const streamedChunkCountRef = useRef(0);
   const [streamingPreview, setStreamingPreview] =
     useState<StreamingPreviewState | null>(null);
+  const onActiveInteractionChangeRef = useRef(onActiveInteractionChange);
   const activeArtifact = artifacts[artifacts.length - 1] || null;
+  const hasActiveInteraction =
+    !previewMode &&
+    Boolean(
+      loading ||
+        saving ||
+        continuing ||
+        streamingPreview?.chunks.length ||
+        (activeArtifact &&
+          activeArtifact.validation_status === 'validated' &&
+          !activeArtifact.submitted &&
+          Array.isArray(activeArtifact.interaction_schema) &&
+          activeArtifact.interaction_schema.length > 0),
+    );
 
   const closeActiveStream = useCallback(() => {
     activeStreamRef.current?.close();
@@ -381,6 +397,20 @@ export default function LearnerTokuiBlock({
     const timer = window.setTimeout(() => setShowLoading(true), 500);
     return () => window.clearTimeout(timer);
   }, [loading]);
+
+  useEffect(() => {
+    onActiveInteractionChangeRef.current = onActiveInteractionChange;
+  }, [onActiveInteractionChange]);
+
+  useEffect(() => {
+    onActiveInteractionChange?.(hasActiveInteraction);
+  }, [hasActiveInteraction, onActiveInteractionChange]);
+
+  useEffect(() => {
+    return () => {
+      onActiveInteractionChangeRef.current?.(false);
+    };
+  }, []);
 
   const submitResponses = useCallback(
     async (responses: TokuiResponseValue[]) => {
