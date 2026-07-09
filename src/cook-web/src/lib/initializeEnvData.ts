@@ -27,6 +27,15 @@ let initPromise: Promise<void> | null = null;
 const resolveRuntimeBase = async (): Promise<string> => {
   const apiBaseUrl = (await getDynamicApiBaseUrl()) || '';
   const normalizedBase = apiBaseUrl.replace(/\/+$/, '');
+
+  // On the client, an empty /api/config apiBaseUrl is intentional: it means
+  // "use the current origin and let Next proxy /api/*". Do not fall back to the
+  // build-time envStore baseURL here, or localhost users will be sent to
+  // api.localtest.me and hit CORS.
+  if (typeof window !== 'undefined') {
+    return normalizedBase;
+  }
+
   return (
     normalizedBase ||
     ((useEnvStore.getState() as EnvStoreState).baseURL || '').replace(
@@ -102,9 +111,7 @@ const loadRuntimeConfig = async () => {
 
   const resolvedBase = await resolveRuntimeBase();
 
-  if (resolvedBase) {
-    await updateBaseURL(resolvedBase);
-  }
+  await updateBaseURL(resolvedBase);
 
   const runtimeUrl = buildRuntimeConfigUrl(resolvedBase);
 

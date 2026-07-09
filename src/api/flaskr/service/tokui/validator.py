@@ -12,6 +12,10 @@ from flask import Flask
 
 TOKUI_VALIDATION_TIMEOUT_SECONDS = 8
 TOKUI_MAX_DSL_BYTES = 512 * 1024
+TOKUI_HTTP_INFRA_ERROR_CODES = {
+    "TOKUI_VALIDATOR_HTTP_ERROR",
+    "TOKUI_VALIDATION_TIMEOUT",
+}
 
 
 @dataclass
@@ -95,9 +99,28 @@ def validate_tokui_dsl(
 
     validator_url = str(app.config.get("TOKUI_VALIDATOR_URL") or "").strip()
     if validator_url:
-        return _validate_tokui_dsl_via_http(
+        http_result = _validate_tokui_dsl_via_http(
             app,
             validator_url,
+            normalized_dsl,
+            locale=locale,
+            theme=theme,
+        )
+        if not _has_http_infra_error(http_result):
+            return http_result
+
+        script_path = Path(
+            app.config.get("TOKUI_VALIDATOR_SCRIPT")
+            or str(_default_validator_script_path())
+        )
+        if not script_path.exists():
+            return http_result
+        app.logger.warning(
+            "TokUI HTTP validator unavailable; falling back to local validator script"
+        )
+        return _validate_tokui_dsl_via_subprocess(
+            app,
+            script_path,
             normalized_dsl,
             locale=locale,
             theme=theme,
@@ -118,8 +141,31 @@ def validate_tokui_dsl(
             ],
         )
 
+    return _validate_tokui_dsl_via_subprocess(
+        app,
+        script_path,
+        normalized_dsl,
+        locale=locale,
+        theme=theme,
+    )
+
+
+def _has_http_infra_error(result: TokuiValidationResult) -> bool:
+    if result.ok:
+        return False
+    return any(error.code in TOKUI_HTTP_INFRA_ERROR_CODES for error in result.errors)
+
+
+def _validate_tokui_dsl_via_subprocess(
+    app: Flask,
+    script_path: Path,
+    dsl: str,
+    *,
+    locale: str,
+    theme: str,
+) -> TokuiValidationResult:
     payload = json.dumps(
-        {"dsl": normalized_dsl, "locale": locale, "theme": theme},
+        {"dsl": dsl, "locale": locale, "theme": theme},
         ensure_ascii=False,
     )
     try:

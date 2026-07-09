@@ -65,6 +65,11 @@ describe('buildAdminMenuItems', () => {
           href: '/admin/operations/credit-notifications',
         },
         {
+          id: 'operations-tokui-image',
+          label: 'common.core.tokuiImageManagement',
+          href: '/admin/operations/tokui-image',
+        },
+        {
           id: 'operations-voice-clone',
           label: 'common.core.voiceCloneManagement',
           href: '/admin/operations/voice-clones',

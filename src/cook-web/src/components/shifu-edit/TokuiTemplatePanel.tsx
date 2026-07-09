@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  Check,
   ImageIcon,
   Loader2,
   Plus,
@@ -24,8 +25,9 @@ type TokuiTemplate = {
   prompt_template?: string;
   concept?: string;
   audience?: string;
-  material_refs?: unknown[];
+  material_refs?: TokuiMaterialPlacement[];
   media_refs?: unknown[];
+  interaction_points?: TokuiInteractionPoint[];
   generation_options?: Record<string, unknown>;
   context_policy?: Record<string, unknown>;
   preview_dsl?: string;
@@ -43,11 +45,194 @@ type TokuiMediaRef = {
   description: string;
 };
 
+type TokuiMaterialPlacement = {
+  placement_id: string;
+  position: string;
+  insertion_point: string;
+  media_type: 'image' | 'video';
+  title: string;
+  description: string;
+  purpose: string;
+  resource_id: string;
+  url: string;
+};
+
+type TokuiResponseOption = {
+  value: string;
+  label: string;
+};
+
+type TokuiResponseSchema = {
+  field_type?: string;
+  value_shape?: string;
+  options?: TokuiResponseOption[];
+};
+
+type TokuiInteractionPoint = {
+  interaction_id: string;
+  position: string;
+  kind: string;
+  prompt: string;
+  response_schema: TokuiResponseSchema;
+  blocking: boolean;
+  continue_on_submit: boolean;
+  downstream_context_policy: string;
+  continuation_hint: string;
+};
+
+type TokuiImageCandidate = {
+  candidate_bid: string;
+  candidate_index: number;
+  status: 'queued' | 'generating' | 'succeeded' | 'failed';
+  resource_id?: string;
+  url?: string;
+  title?: string;
+  description?: string;
+  selected?: boolean;
+  error_message?: string;
+};
+
+type TokuiImageJob = {
+  job_bid: string;
+  retry_of_job_bid?: string;
+  status:
+    | 'queued'
+    | 'optimizing_prompt'
+    | 'generating_images'
+    | 'awaiting_selection'
+    | 'selected'
+    | 'failed'
+    | 'canceled';
+  teacher_prompt?: string;
+  optimized_prompt?: string;
+  final_provider_prompt?: string;
+  prompt_optimization_error?: string;
+  error_message?: string;
+  candidates?: TokuiImageCandidate[];
+};
+
 type TokuiTemplatePanelProps = {
   shifuBid?: string;
   outlineBid?: string;
   readonly?: boolean;
 };
+
+type InteractionMode = 'normal' | 'checkpoint';
+
+const fieldTypeAliases: Record<string, string> = {
+  text: 'short_text',
+  textarea: 'short_text',
+  short: 'short_text',
+  short_text: 'short_text',
+  choice: 'single_choice',
+  radio: 'single_choice',
+  single: 'single_choice',
+  single_choice: 'single_choice',
+  select: 'single_choice',
+  checkbox: 'multi_choice',
+  multi: 'multi_choice',
+  multiple: 'multi_choice',
+  multi_choice: 'multi_choice',
+  multiple_choice: 'multi_choice',
+  boolean: 'true_false',
+  bool: 'true_false',
+  truefalse: 'true_false',
+  true_false: 'true_false',
+  number: 'number',
+};
+
+const normalizeFieldType = (value: unknown) => {
+  const key = String(value || 'short_text')
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, '_');
+  return fieldTypeAliases[key] || key || 'short_text';
+};
+
+const defaultOptionsForFieldType = (
+  fieldType: string,
+): TokuiResponseOption[] =>
+  fieldType === 'true_false'
+    ? [
+        { value: 'true', label: '对' },
+        { value: 'false', label: '错' },
+      ]
+    : [];
+
+const normalizeResponseOptions = (value: unknown): TokuiResponseOption[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item, index) => {
+      if (typeof item === 'string') {
+        const optionValue = item.trim();
+        return optionValue ? { value: optionValue, label: optionValue } : null;
+      }
+      if (!item || typeof item !== 'object') return null;
+      const raw = item as Record<string, unknown>;
+      const optionValue = String(
+        raw.value || raw.v || raw.id || raw.key || `option_${index + 1}`,
+      ).trim();
+      const optionLabel = String(
+        raw.label || raw.tx || raw.text || raw.name || optionValue,
+      ).trim();
+      if (!optionValue && !optionLabel) return null;
+      return {
+        value: optionValue || optionLabel,
+        label: optionLabel || optionValue,
+      };
+    })
+    .filter((item): item is TokuiResponseOption => Boolean(item));
+};
+
+const normalizeResponseSchema = (value: unknown): TokuiResponseSchema => {
+  const raw =
+    value && typeof value === 'object'
+      ? (value as Record<string, unknown>)
+      : {};
+  const fieldType = normalizeFieldType(raw.field_type || raw.type);
+  const parsedOptions = normalizeResponseOptions(raw.options || raw.choices);
+  const options = parsedOptions.length
+    ? parsedOptions
+    : defaultOptionsForFieldType(fieldType);
+  return {
+    field_type: fieldType,
+    value_shape:
+      String(raw.value_shape || '').trim() ||
+      (fieldType === 'multi_choice'
+        ? 'string_array'
+        : fieldType === 'true_false'
+          ? 'boolean'
+          : fieldType === 'number'
+            ? 'number'
+            : 'string'),
+    ...(options?.length ? { options } : {}),
+  };
+};
+
+const optionsToText = (options?: TokuiResponseOption[]) =>
+  (options || []).map(option => `${option.value}:${option.label}`).join('\n');
+
+const optionsFromText = (value: string): TokuiResponseOption[] =>
+  value
+    .split(/\r?\n/)
+    .map((line, index) => {
+      const trimmed = line.trim();
+      if (!trimmed) return null;
+      const separator = trimmed.indexOf(':');
+      if (separator < 0) {
+        return { value: `option_${index + 1}`, label: trimmed };
+      }
+      const optionValue = trimmed.slice(0, separator).trim();
+      const optionLabel = trimmed.slice(separator + 1).trim();
+      return {
+        value: optionValue || `option_${index + 1}`,
+        label: optionLabel || optionValue || trimmed,
+      };
+    })
+    .filter((item): item is TokuiResponseOption => Boolean(item));
+
+const fieldTypeNeedsOptions = (fieldType: string) =>
+  ['single_choice', 'multi_choice', 'true_false'].includes(fieldType);
 
 const normalizeMediaRefs = (value: unknown): TokuiMediaRef[] => {
   if (!Array.isArray(value)) return [];
@@ -69,9 +254,8 @@ const normalizeMediaRefs = (value: unknown): TokuiMediaRef[] => {
       ).trim();
       const url = String(raw.url || raw.src || '').trim();
       if (!resourceId && !url) return null;
-      const mediaType = raw.type === 'video' || raw.media_type === 'video'
-        ? 'video'
-        : 'image';
+      const mediaType =
+        raw.type === 'video' || raw.media_type === 'video' ? 'video' : 'image';
       return {
         resource_id: resourceId,
         url,
@@ -83,12 +267,111 @@ const normalizeMediaRefs = (value: unknown): TokuiMediaRef[] => {
     .filter((item): item is TokuiMediaRef => Boolean(item));
 };
 
+const normalizeMaterialPlacements = (
+  value: unknown,
+): TokuiMaterialPlacement[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item, index) => {
+      if (!item || typeof item !== 'object') return null;
+      const raw = item as Record<string, unknown>;
+      const mediaType =
+        raw.media_type === 'video' || raw.type === 'video' ? 'video' : 'image';
+      return {
+        placement_id: String(
+          raw.placement_id || raw.bid || `material_${index + 1}`,
+        ).trim(),
+        position: String(raw.position || index + 1).trim(),
+        insertion_point: String(raw.insertion_point || '').trim(),
+        media_type: mediaType,
+        title: String(raw.title || raw.name || '').trim(),
+        description: String(
+          raw.description || raw.generation_prompt || raw.prompt || '',
+        ).trim(),
+        purpose: String(raw.purpose || '').trim(),
+        resource_id: String(
+          raw.resource_id || raw.resource_bid || raw.id || '',
+        ).trim(),
+        url: String(raw.url || raw.src || '').trim(),
+      };
+    })
+    .filter((item): item is TokuiMaterialPlacement =>
+      Boolean(
+        item &&
+        (item.title ||
+          item.description ||
+          item.insertion_point ||
+          item.purpose ||
+          item.resource_id ||
+          item.url),
+      ),
+    );
+};
+
+const normalizeInteractionPoints = (
+  value: unknown,
+): TokuiInteractionPoint[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item, index) => {
+      if (!item || typeof item !== 'object') return null;
+      const raw = item as Record<string, unknown>;
+      const responseSchema =
+        raw.response_schema &&
+        typeof raw.response_schema === 'object' &&
+        Object.keys(raw.response_schema).length
+          ? normalizeResponseSchema(raw.response_schema)
+          : {};
+      const blocking = Boolean(raw.blocking ?? raw.blocking_behavior);
+      return {
+        interaction_id: String(
+          raw.interaction_id ||
+            raw.field_id ||
+            raw.id ||
+            `interaction_${index + 1}`,
+        ).trim(),
+        position: String(raw.position || index + 1).trim(),
+        kind: String(raw.kind || 'checkpoint').trim(),
+        prompt: String(raw.prompt || raw.question || '').trim(),
+        response_schema: responseSchema,
+        blocking,
+        continue_on_submit:
+          raw.continue_on_submit === undefined
+            ? blocking
+            : Boolean(raw.continue_on_submit),
+        downstream_context_policy: String(
+          raw.downstream_context_policy || '',
+        ).trim(),
+        continuation_hint: String(raw.continuation_hint || '').trim(),
+      };
+    })
+    .filter((item): item is TokuiInteractionPoint =>
+      Boolean(
+        item &&
+        (item.prompt ||
+          item.downstream_context_policy ||
+          item.continuation_hint ||
+          Object.keys(item.response_schema).length),
+      ),
+    );
+};
+
+const normalizeTemplate = (value: TokuiTemplate): TokuiTemplate => ({
+  ...value,
+  material_refs: normalizeMaterialPlacements(value.material_refs),
+  media_refs: normalizeMediaRefs(value.media_refs),
+  interaction_points: normalizeInteractionPoints(
+    value.interaction_points || value.generation_options?.interaction_points,
+  ),
+});
+
 const defaultContextPolicy = {
   allowed_context: [
     'course_title',
     'chapter_title',
     'outline_title',
     'teacher_material_refs',
+    'teacher_media_refs',
     'learning_progress',
     'prior_learning_summary',
     'tokui_responses',
@@ -96,19 +379,35 @@ const defaultContextPolicy = {
   ],
 };
 
+const getInteractionMode = (
+  generationOptions?: Record<string, unknown>,
+): InteractionMode =>
+  generationOptions?.interaction_mode === 'normal' ? 'normal' : 'checkpoint';
+
+const isImageJobRunning = (job?: TokuiImageJob | null) =>
+  Boolean(
+    job &&
+    ['queued', 'optimizing_prompt', 'generating_images'].includes(job.status),
+  );
+
 export default function TokuiTemplatePanel({
   shifuBid,
   outlineBid,
   readonly = false,
 }: TokuiTemplatePanelProps) {
-  const { t } = useTranslation();
+  const { t } = useTranslation(['module.shifu', 'common.core']);
   const defaultLlmModel = useEnvStore(state => state.defaultLlmModel);
   const [template, setTemplate] = useState<TokuiTemplate>({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [generatingGuidance, setGeneratingGuidance] = useState(false);
   const [generatingImage, setGeneratingImage] = useState(false);
   const [imagePrompt, setImagePrompt] = useState('');
+  const [currentImageJob, setCurrentImageJob] = useState<TokuiImageJob | null>(
+    null,
+  );
+  const [selectingCandidateBid, setSelectingCandidateBid] = useState('');
   const [draftMediaRef, setDraftMediaRef] = useState<TokuiMediaRef>({
     resource_id: '',
     url: '',
@@ -116,9 +415,35 @@ export default function TokuiTemplatePanel({
     title: '',
     description: '',
   });
+  const [draftMaterialPlacement, setDraftMaterialPlacement] =
+    useState<TokuiMaterialPlacement>({
+      placement_id: '',
+      position: '',
+      insertion_point: '',
+      media_type: 'image',
+      title: '',
+      description: '',
+      purpose: '',
+      resource_id: '',
+      url: '',
+    });
+  const [draftInteractionPoint, setDraftInteractionPoint] =
+    useState<TokuiInteractionPoint>({
+      interaction_id: '',
+      position: '',
+      kind: 'checkpoint',
+      prompt: '',
+      response_schema: normalizeResponseSchema({ field_type: 'short_text' }),
+      blocking: true,
+      continue_on_submit: true,
+      downstream_context_policy: '',
+      continuation_hint: '',
+    });
   const savingRef = useRef(false);
   const generatingRef = useRef(false);
+  const generatingGuidanceRef = useRef(false);
   const generatingImageRef = useRef(false);
+  const interactionMode = getInteractionMode(template.generation_options);
 
   useEffect(() => {
     if (!shifuBid || !outlineBid) {
@@ -132,10 +457,7 @@ export default function TokuiTemplatePanel({
       .then(result => {
         if (mounted) {
           const nextTemplate = (result || {}) as TokuiTemplate;
-          setTemplate({
-            ...nextTemplate,
-            media_refs: normalizeMediaRefs(nextTemplate.media_refs),
-          });
+          setTemplate(normalizeTemplate(nextTemplate));
         }
       })
       .catch(() => {
@@ -144,10 +466,61 @@ export default function TokuiTemplatePanel({
       .finally(() => {
         if (mounted) setLoading(false);
       });
+    api
+      .getLatestTokuiImageJob({ shifu_bid: shifuBid, outline_bid: outlineBid })
+      .then(result => {
+        if (!mounted) return;
+        const latestJob = (result || {}) as Partial<TokuiImageJob>;
+        setCurrentImageJob(
+          latestJob.job_bid ? (latestJob as TokuiImageJob) : null,
+        );
+        setGeneratingImage(isImageJobRunning(latestJob as TokuiImageJob));
+        generatingImageRef.current = isImageJobRunning(
+          latestJob as TokuiImageJob,
+        );
+      })
+      .catch(() => {
+        if (mounted) setCurrentImageJob(null);
+      });
     return () => {
       mounted = false;
     };
   }, [shifuBid, outlineBid]);
+
+  useEffect(() => {
+    if (!shifuBid || !outlineBid || !currentImageJob?.job_bid) return;
+    if (!isImageJobRunning(currentImageJob)) return;
+    let mounted = true;
+    const poll = window.setInterval(() => {
+      void api
+        .getTokuiImageJob({
+          shifu_bid: shifuBid,
+          outline_bid: outlineBid,
+          job_bid: currentImageJob.job_bid,
+        })
+        .then(result => {
+          if (!mounted) return;
+          const nextJob = result as TokuiImageJob;
+          setCurrentImageJob(nextJob);
+          const stillRunning = isImageJobRunning(nextJob);
+          setGeneratingImage(stillRunning);
+          generatingImageRef.current = stillRunning;
+          if (!stillRunning) {
+            window.clearInterval(poll);
+          }
+        })
+        .catch(() => {
+          if (!mounted) return;
+          setGeneratingImage(false);
+          generatingImageRef.current = false;
+          window.clearInterval(poll);
+        });
+    }, 2500);
+    return () => {
+      mounted = false;
+      window.clearInterval(poll);
+    };
+  }, [currentImageJob, outlineBid, shifuBid]);
 
   const buildPayload = () => {
     const generationOptions = {
@@ -160,14 +533,23 @@ export default function TokuiTemplatePanel({
     if (generationOptions.temperature === undefined) {
       generationOptions.temperature = 0.3;
     }
+    if (!generationOptions.interaction_mode) {
+      generationOptions.interaction_mode = interactionMode;
+    }
+    generationOptions.blocking_checkpoint = interactionMode === 'checkpoint';
+    generationOptions.interaction_points = normalizeInteractionPoints(
+      template.interaction_points ||
+        (template.generation_options || {}).interaction_points,
+    );
 
     return {
       teacher_intent: template.teacher_intent || '',
       prompt_template: template.prompt_template || '',
       concept: template.concept || '',
       audience: template.audience || '',
-      material_refs: template.material_refs || [],
+      material_refs: normalizeMaterialPlacements(template.material_refs),
       media_refs: normalizeMediaRefs(template.media_refs),
+      interaction_points: generationOptions.interaction_points,
       generation_options: generationOptions,
       context_policy: template.context_policy || defaultContextPolicy,
     };
@@ -181,6 +563,77 @@ export default function TokuiTemplatePanel({
       title: '',
       description: '',
     });
+
+  const resetDraftMaterialPlacement = () =>
+    setDraftMaterialPlacement({
+      placement_id: '',
+      position: '',
+      insertion_point: '',
+      media_type: 'image',
+      title: '',
+      description: '',
+      purpose: '',
+      resource_id: '',
+      url: '',
+    });
+
+  const resetDraftInteractionPoint = () =>
+    setDraftInteractionPoint({
+      interaction_id: '',
+      position: '',
+      kind: 'checkpoint',
+      prompt: '',
+      response_schema: normalizeResponseSchema({ field_type: 'short_text' }),
+      blocking: true,
+      continue_on_submit: true,
+      downstream_context_policy: '',
+      continuation_hint: '',
+    });
+
+  const setInteractionMode = (mode: InteractionMode) => {
+    setTemplate(prev => ({
+      ...prev,
+      generation_options: {
+        ...(prev.generation_options || {}),
+        interaction_mode: mode,
+        blocking_checkpoint: mode === 'checkpoint',
+      },
+    }));
+  };
+
+  const insertGuidanceExample = () => {
+    const example = t('creationArea.tokui.guidanceExample');
+    setTemplate(prev => ({
+      ...prev,
+      prompt_template: prev.prompt_template?.trim()
+        ? `${prev.prompt_template.trim()}\n\n---\n\n${example}`
+        : example,
+    }));
+  };
+
+  const generateGuidance = async () => {
+    if (!shifuBid || !outlineBid) return;
+    if (generatingGuidanceRef.current) return;
+    generatingGuidanceRef.current = true;
+    setGeneratingGuidance(true);
+    try {
+      const result = (await api.generateTokuiGuidance({
+        shifu_bid: shifuBid,
+        outline_bid: outlineBid,
+        ...buildPayload(),
+      })) as TokuiTemplate;
+      setTemplate(normalizeTemplate(result));
+      toast({ title: t('creationArea.tokui.guidanceGenerateSuccess') });
+    } catch {
+      toast({
+        title: t('creationArea.tokui.guidanceGenerateFailed'),
+        variant: 'destructive',
+      });
+    } finally {
+      generatingGuidanceRef.current = false;
+      setGeneratingGuidance(false);
+    }
+  };
 
   const addDraftMediaRef = () => {
     const normalized = normalizeMediaRefs([draftMediaRef]);
@@ -201,6 +654,72 @@ export default function TokuiTemplatePanel({
     }));
   };
 
+  const addDraftMaterialPlacement = () => {
+    const existing = normalizeMaterialPlacements(template.material_refs);
+    const normalized = normalizeMaterialPlacements([
+      {
+        ...draftMaterialPlacement,
+        placement_id:
+          draftMaterialPlacement.placement_id ||
+          `material_${existing.length + 1}`,
+        position:
+          draftMaterialPlacement.position || String(existing.length + 1),
+      },
+    ]);
+    if (!normalized.length) return;
+    setTemplate(prev => ({
+      ...prev,
+      material_refs: [
+        ...normalizeMaterialPlacements(prev.material_refs),
+        normalized[0],
+      ],
+    }));
+    resetDraftMaterialPlacement();
+  };
+
+  const removeMaterialPlacement = (index: number) => {
+    setTemplate(prev => ({
+      ...prev,
+      material_refs: normalizeMaterialPlacements(prev.material_refs).filter(
+        (_, itemIndex) => itemIndex !== index,
+      ),
+    }));
+  };
+
+  const addDraftInteractionPoint = () => {
+    const existing = normalizeInteractionPoints(template.interaction_points);
+    const normalized = normalizeInteractionPoints([
+      {
+        ...draftInteractionPoint,
+        interaction_id:
+          draftInteractionPoint.interaction_id ||
+          `interaction_${existing.length + 1}`,
+        position: draftInteractionPoint.position || String(existing.length + 1),
+        continue_on_submit:
+          draftInteractionPoint.continue_on_submit ||
+          draftInteractionPoint.blocking,
+      },
+    ]);
+    if (!normalized.length) return;
+    setTemplate(prev => ({
+      ...prev,
+      interaction_points: [
+        ...normalizeInteractionPoints(prev.interaction_points),
+        normalized[0],
+      ],
+    }));
+    resetDraftInteractionPoint();
+  };
+
+  const removeInteractionPoint = (index: number) => {
+    setTemplate(prev => ({
+      ...prev,
+      interaction_points: normalizeInteractionPoints(
+        prev.interaction_points,
+      ).filter((_, itemIndex) => itemIndex !== index),
+    }));
+  };
+
   const saveTemplate = async () => {
     if (!shifuBid || !outlineBid) return;
     if (savingRef.current) return;
@@ -212,8 +731,8 @@ export default function TokuiTemplatePanel({
         outline_bid: outlineBid,
         ...buildPayload(),
       })) as TokuiTemplate;
-      setTemplate(result);
-      toast({ title: t('module.shifu.creationArea.tokui.saveSuccess') });
+      setTemplate(normalizeTemplate(result));
+      toast({ title: t('creationArea.tokui.saveSuccess') });
     } finally {
       savingRef.current = false;
       setSaving(false);
@@ -231,10 +750,10 @@ export default function TokuiTemplatePanel({
         outline_bid: outlineBid,
         ...buildPayload(),
       })) as TokuiTemplate;
-      setTemplate(result);
+      setTemplate(normalizeTemplate(result));
       if (result.preview_validation_status !== 'validated') {
         toast({
-          title: t('module.shifu.creationArea.tokui.previewFailed'),
+          title: t('creationArea.tokui.previewFailed'),
           variant: 'destructive',
         });
       }
@@ -244,52 +763,82 @@ export default function TokuiTemplatePanel({
     }
   };
 
-  const generateImageMediaRef = async () => {
-    if (!shifuBid || !outlineBid || !imagePrompt.trim()) return;
+  const generateImageMediaRef = async (retryOfJobBid = '') => {
+    const prompt = imagePrompt.trim() || currentImageJob?.teacher_prompt || '';
+    if (!shifuBid || !outlineBid || !prompt.trim()) return;
     if (generatingImageRef.current) return;
     generatingImageRef.current = true;
     setGeneratingImage(true);
     try {
-      const result = (await api.generateTokuiImage({
+      const result = (await api.createTokuiImageJob({
         shifu_bid: shifuBid,
         outline_bid: outlineBid,
-        prompt: imagePrompt.trim(),
-        title: template.concept || imagePrompt.trim(),
-      })) as { media_ref?: unknown };
-      const normalized = normalizeMediaRefs([result.media_ref]);
-      if (!normalized.length) {
-        throw new Error('Invalid generated media ref');
-      }
-      setTemplate(prev => ({
-        ...prev,
-        media_refs: [...normalizeMediaRefs(prev.media_refs), normalized[0]],
-      }));
-      setImagePrompt('');
+        teacher_prompt: prompt,
+        title: template.concept || prompt,
+        retry_of_job_bid: retryOfJobBid,
+      })) as TokuiImageJob;
+      setCurrentImageJob(result);
       toast({
-        title: t('module.shifu.creationArea.tokui.imageGenerateSuccess'),
+        title: t('creationArea.tokui.imageJobQueued'),
       });
     } catch {
+      generatingImageRef.current = false;
+      setGeneratingImage(false);
       toast({
-        title: t('module.shifu.creationArea.tokui.imageGenerateFailed'),
+        title: t('creationArea.tokui.imageGenerateFailed'),
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const selectImageCandidate = async (candidateBid: string) => {
+    if (!shifuBid || !outlineBid || !currentImageJob?.job_bid) return;
+    setSelectingCandidateBid(candidateBid);
+    try {
+      const result = (await api.selectTokuiImageCandidate({
+        shifu_bid: shifuBid,
+        outline_bid: outlineBid,
+        job_bid: currentImageJob.job_bid,
+        candidate_bid: candidateBid,
+      })) as {
+        job?: TokuiImageJob;
+        template?: TokuiTemplate;
+      };
+      if (result.template) {
+        setTemplate(normalizeTemplate(result.template));
+      }
+      if (result.job) {
+        setCurrentImageJob(result.job);
+      }
+      setImagePrompt('');
+      toast({ title: t('creationArea.tokui.imageSelectSuccess') });
+    } catch {
+      toast({
+        title: t('creationArea.tokui.imageSelectFailed'),
         variant: 'destructive',
       });
     } finally {
-      generatingImageRef.current = false;
-      setGeneratingImage(false);
+      setSelectingCandidateBid('');
     }
   };
 
   const disabled = readonly || !shifuBid || !outlineBid || loading;
+  const draftFieldType = normalizeFieldType(
+    draftInteractionPoint.response_schema.field_type,
+  );
+  const draftFieldOptions = normalizeResponseOptions(
+    draftInteractionPoint.response_schema.options,
+  );
 
   return (
-    <section className='border-t border-slate-200 bg-white px-4 py-3'>
+    <section className='border-t border-slate-200 bg-white px-4 py-4'>
       <div className='mb-3 flex items-center justify-between gap-3'>
         <div>
           <div className='text-sm font-medium text-slate-900'>
-            {t('module.shifu.creationArea.tokui.title')}
+            {t('creationArea.tokui.title')}
           </div>
           <div className='text-xs text-slate-500'>
-            {t('module.shifu.creationArea.tokui.subtitle')}
+            {t('creationArea.tokui.subtitle')}
           </div>
         </div>
         {loading ? (
@@ -297,50 +846,489 @@ export default function TokuiTemplatePanel({
         ) : null}
       </div>
 
-      <div className='grid gap-3 lg:grid-cols-2'>
-        <div className='space-y-2'>
-          <input
-            className='w-full rounded-md border border-slate-300 px-3 py-2 text-sm'
-            disabled={disabled}
-            value={template.concept || ''}
-            placeholder={t(
-              'module.shifu.creationArea.tokui.conceptPlaceholder',
-            )}
-            onChange={event =>
-              setTemplate(prev => ({ ...prev, concept: event.target.value }))
-            }
-          />
-          <textarea
-            className='min-h-20 w-full rounded-md border border-slate-300 px-3 py-2 text-sm'
-            disabled={disabled}
-            value={template.teacher_intent || ''}
-            placeholder={t('module.shifu.creationArea.tokui.intentPlaceholder')}
-            onChange={event =>
-              setTemplate(prev => ({
-                ...prev,
-                teacher_intent: event.target.value,
-              }))
-            }
-          />
-          <textarea
-            className='min-h-28 w-full rounded-md border border-slate-300 px-3 py-2 text-sm'
-            disabled={disabled}
-            value={template.prompt_template || ''}
-            placeholder={t('module.shifu.creationArea.tokui.promptPlaceholder')}
-            onChange={event =>
-              setTemplate(prev => ({
-                ...prev,
-                prompt_template: event.target.value,
-              }))
-            }
-          />
+      <div className='grid gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(360px,0.92fr)]'>
+        <div className='space-y-3'>
+          <div className='grid gap-2 sm:grid-cols-2'>
+            <label className='space-y-1 text-xs font-medium text-slate-700'>
+              <span>{t('creationArea.tokui.conceptLabel')}</span>
+              <input
+                className='w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal'
+                disabled={disabled}
+                value={template.concept || ''}
+                placeholder={t('creationArea.tokui.conceptPlaceholder')}
+                onChange={event =>
+                  setTemplate(prev => ({
+                    ...prev,
+                    concept: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label className='space-y-1 text-xs font-medium text-slate-700'>
+              <span>{t('creationArea.tokui.audienceLabel')}</span>
+              <input
+                className='w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal'
+                disabled={disabled}
+                value={template.audience || ''}
+                placeholder={t('creationArea.tokui.audiencePlaceholder')}
+                onChange={event =>
+                  setTemplate(prev => ({
+                    ...prev,
+                    audience: event.target.value,
+                  }))
+                }
+              />
+            </label>
+          </div>
+
+          <label className='block space-y-1 text-xs font-medium text-slate-700'>
+            <span>{t('creationArea.tokui.learningOutcomeLabel')}</span>
+            <textarea
+              className='min-h-20 w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-normal'
+              disabled={disabled}
+              value={template.teacher_intent || ''}
+              placeholder={t('creationArea.tokui.intentPlaceholder')}
+              onChange={event =>
+                setTemplate(prev => ({
+                  ...prev,
+                  teacher_intent: event.target.value,
+                }))
+              }
+            />
+          </label>
+
+          <div className='space-y-2 rounded-md border border-blue-100 bg-blue-50/60 p-3'>
+            <div className='flex flex-wrap items-start justify-between gap-2'>
+              <div>
+                <div className='text-xs font-semibold text-slate-900'>
+                  {t('creationArea.tokui.guidanceTitle')}
+                </div>
+                <div className='mt-1 max-w-3xl text-xs leading-5 text-slate-600'>
+                  {t('creationArea.tokui.guidanceHint')}
+                </div>
+              </div>
+              <div className='flex flex-wrap gap-2'>
+                <Button
+                  type='button'
+                  size='sm'
+                  variant='secondary'
+                  disabled={
+                    disabled ||
+                    generatingGuidance ||
+                    (!template.teacher_intent?.trim() &&
+                      !template.concept?.trim() &&
+                      !template.prompt_template?.trim())
+                  }
+                  onClick={generateGuidance}
+                >
+                  {generatingGuidance ? (
+                    <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                  ) : (
+                    <Sparkles className='mr-2 h-4 w-4' />
+                  )}
+                  {t('creationArea.tokui.generateGuidance')}
+                </Button>
+                <Button
+                  type='button'
+                  size='sm'
+                  variant='outline'
+                  disabled={disabled || generatingGuidance}
+                  onClick={insertGuidanceExample}
+                >
+                  <Sparkles className='mr-2 h-4 w-4' />
+                  {t('creationArea.tokui.insertGuidanceExample')}
+                </Button>
+              </div>
+            </div>
+            <textarea
+              className='min-h-72 w-full rounded-md border border-blue-200 bg-white px-3 py-2 text-sm leading-6'
+              disabled={disabled || generatingGuidance}
+              value={template.prompt_template || ''}
+              placeholder={t('creationArea.tokui.promptPlaceholder')}
+              onChange={event =>
+                setTemplate(prev => ({
+                  ...prev,
+                  prompt_template: event.target.value,
+                }))
+              }
+            />
+          </div>
+
+          <div className='rounded-md border border-slate-200 p-3'>
+            <div className='mb-2 flex items-center justify-between gap-2'>
+              <div className='text-xs font-semibold text-slate-900'>
+                {t('creationArea.tokui.materialPlacementsTitle')}
+              </div>
+              <div className='text-xs text-slate-500'>
+                {t('creationArea.tokui.materialPlacementsHint')}
+              </div>
+            </div>
+            <div className='grid gap-2 sm:grid-cols-[7rem_1fr]'>
+              <select
+                className='rounded-md border border-slate-300 px-2 py-2 text-sm'
+                disabled={disabled}
+                value={draftMaterialPlacement.media_type}
+                aria-label={t('creationArea.tokui.mediaTypeLabel')}
+                onChange={event =>
+                  setDraftMaterialPlacement(prev => ({
+                    ...prev,
+                    media_type:
+                      event.target.value === 'video' ? 'video' : 'image',
+                  }))
+                }
+              >
+                <option value='image'>
+                  {t('creationArea.tokui.mediaTypeImage')}
+                </option>
+                <option value='video'>
+                  {t('creationArea.tokui.mediaTypeVideo')}
+                </option>
+              </select>
+              <input
+                className='rounded-md border border-slate-300 px-3 py-2 text-sm'
+                disabled={disabled}
+                value={draftMaterialPlacement.title}
+                placeholder={t('creationArea.tokui.materialTitlePlaceholder')}
+                onChange={event =>
+                  setDraftMaterialPlacement(prev => ({
+                    ...prev,
+                    title: event.target.value,
+                  }))
+                }
+              />
+              <input
+                className='rounded-md border border-slate-300 px-3 py-2 text-sm sm:col-span-2'
+                disabled={disabled}
+                value={draftMaterialPlacement.insertion_point}
+                placeholder={t(
+                  'creationArea.tokui.materialInsertionPlaceholder',
+                )}
+                onChange={event =>
+                  setDraftMaterialPlacement(prev => ({
+                    ...prev,
+                    insertion_point: event.target.value,
+                  }))
+                }
+              />
+              <textarea
+                className='min-h-20 rounded-md border border-slate-300 px-3 py-2 text-sm sm:col-span-2'
+                disabled={disabled}
+                value={draftMaterialPlacement.description}
+                placeholder={t(
+                  'creationArea.tokui.materialDescriptionPlaceholder',
+                )}
+                onChange={event =>
+                  setDraftMaterialPlacement(prev => ({
+                    ...prev,
+                    description: event.target.value,
+                  }))
+                }
+              />
+              <input
+                className='rounded-md border border-slate-300 px-3 py-2 text-sm sm:col-span-2'
+                disabled={disabled}
+                value={draftMaterialPlacement.purpose}
+                placeholder={t('creationArea.tokui.materialPurposePlaceholder')}
+                onChange={event =>
+                  setDraftMaterialPlacement(prev => ({
+                    ...prev,
+                    purpose: event.target.value,
+                  }))
+                }
+              />
+              <input
+                className='rounded-md border border-slate-300 px-3 py-2 text-sm sm:col-span-2'
+                disabled={disabled}
+                value={
+                  draftMaterialPlacement.url ||
+                  draftMaterialPlacement.resource_id
+                }
+                placeholder={t('creationArea.tokui.mediaUrlPlaceholder')}
+                onChange={event =>
+                  setDraftMaterialPlacement(prev => ({
+                    ...prev,
+                    url: event.target.value,
+                    resource_id: '',
+                  }))
+                }
+              />
+              <Button
+                type='button'
+                size='sm'
+                variant='outline'
+                className='sm:col-span-2'
+                disabled={
+                  disabled ||
+                  (!draftMaterialPlacement.title.trim() &&
+                    !draftMaterialPlacement.description.trim() &&
+                    !draftMaterialPlacement.insertion_point.trim() &&
+                    !draftMaterialPlacement.purpose.trim() &&
+                    !draftMaterialPlacement.url.trim() &&
+                    !draftMaterialPlacement.resource_id.trim())
+                }
+                onClick={addDraftMaterialPlacement}
+              >
+                <Plus className='mr-2 h-4 w-4' />
+                {t('creationArea.tokui.addMaterialPlacement')}
+              </Button>
+            </div>
+            {normalizeMaterialPlacements(template.material_refs).length ? (
+              <div
+                className='mt-3 space-y-2'
+                data-testid='tokui-material-placements'
+              >
+                {normalizeMaterialPlacements(template.material_refs).map(
+                  (placement, index) => (
+                    <div
+                      key={`${placement.placement_id}-${index}`}
+                      className='flex gap-2 rounded-md bg-slate-50 px-2 py-2'
+                    >
+                      <div className='min-w-0 flex-1'>
+                        <div className='truncate text-xs font-medium text-slate-700'>
+                          {placement.position}.{' '}
+                          {placement.title ||
+                            placement.insertion_point ||
+                            placement.description}
+                        </div>
+                        <div className='mt-1 line-clamp-2 text-xs text-slate-500'>
+                          {placement.insertion_point}
+                          {placement.purpose ? ` - ${placement.purpose}` : ''}
+                        </div>
+                      </div>
+                      <Button
+                        type='button'
+                        size='icon'
+                        variant='ghost'
+                        disabled={disabled}
+                        aria-label={t(
+                          'creationArea.tokui.removeMaterialPlacement',
+                        )}
+                        onClick={() => removeMaterialPlacement(index)}
+                      >
+                        <Trash2 className='h-4 w-4' />
+                      </Button>
+                    </div>
+                  ),
+                )}
+              </div>
+            ) : null}
+          </div>
+
+          <div className='rounded-md border border-slate-200 p-3'>
+            <div className='mb-2 text-xs font-semibold text-slate-900'>
+              {t('creationArea.tokui.interactionModeTitle')}
+            </div>
+            <div className='grid gap-2 sm:grid-cols-2'>
+              {(['checkpoint', 'normal'] as const).map(mode => (
+                <button
+                  key={mode}
+                  type='button'
+                  disabled={disabled}
+                  className={`rounded-md border px-3 py-2 text-left transition ${
+                    interactionMode === mode
+                      ? 'border-blue-500 bg-blue-50 text-blue-900'
+                      : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                  }`}
+                  onClick={() => setInteractionMode(mode)}
+                >
+                  <div className='text-xs font-semibold'>
+                    {t(`creationArea.tokui.interactionMode.${mode}.title`)}
+                  </div>
+                  <div className='mt-1 text-xs leading-5 text-slate-500'>
+                    {t(`creationArea.tokui.interactionMode.${mode}.desc`)}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className='rounded-md border border-slate-200 p-3'>
+            <div className='mb-2 flex items-center justify-between gap-2'>
+              <div className='text-xs font-semibold text-slate-900'>
+                {t('creationArea.tokui.interactionPointsTitle')}
+              </div>
+              <div className='text-xs text-slate-500'>
+                {t('creationArea.tokui.interactionPointsHint')}
+              </div>
+            </div>
+            <div className='grid gap-2 sm:grid-cols-[9rem_1fr]'>
+              <select
+                className='rounded-md border border-slate-300 px-2 py-2 text-sm'
+                disabled={disabled}
+                value={draftFieldType}
+                aria-label={t('creationArea.tokui.responseTypeLabel')}
+                onChange={event => {
+                  const nextFieldType = normalizeFieldType(event.target.value);
+                  setDraftInteractionPoint(prev => ({
+                    ...prev,
+                    response_schema: normalizeResponseSchema({
+                      ...prev.response_schema,
+                      field_type: nextFieldType,
+                      options: fieldTypeNeedsOptions(nextFieldType)
+                        ? normalizeResponseOptions(prev.response_schema.options)
+                            .length
+                          ? prev.response_schema.options
+                          : defaultOptionsForFieldType(nextFieldType)
+                        : undefined,
+                    }),
+                  }));
+                }}
+              >
+                <option value='short_text'>
+                  {t('creationArea.tokui.responseTypeText')}
+                </option>
+                <option value='single_choice'>
+                  {t('creationArea.tokui.responseTypeSingleChoice')}
+                </option>
+                <option value='multi_choice'>
+                  {t('creationArea.tokui.responseTypeMultiChoice')}
+                </option>
+                <option value='true_false'>
+                  {t('creationArea.tokui.responseTypeTrueFalse')}
+                </option>
+              </select>
+              <label className='flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700'>
+                <input
+                  type='checkbox'
+                  disabled={disabled}
+                  checked={draftInteractionPoint.blocking}
+                  onChange={event =>
+                    setDraftInteractionPoint(prev => ({
+                      ...prev,
+                      blocking: event.target.checked,
+                      continue_on_submit: event.target.checked,
+                    }))
+                  }
+                />
+                {t('creationArea.tokui.blockingInteractionLabel')}
+              </label>
+              <textarea
+                className='min-h-20 rounded-md border border-slate-300 px-3 py-2 text-sm sm:col-span-2'
+                disabled={disabled}
+                value={draftInteractionPoint.prompt}
+                placeholder={t(
+                  'creationArea.tokui.interactionPromptPlaceholder',
+                )}
+                onChange={event =>
+                  setDraftInteractionPoint(prev => ({
+                    ...prev,
+                    prompt: event.target.value,
+                  }))
+                }
+              />
+              {fieldTypeNeedsOptions(draftFieldType) ? (
+                <textarea
+                  className='min-h-20 rounded-md border border-slate-300 px-3 py-2 text-sm sm:col-span-2'
+                  disabled={disabled || draftFieldType === 'true_false'}
+                  value={optionsToText(
+                    draftFieldType === 'true_false'
+                      ? defaultOptionsForFieldType(draftFieldType)
+                      : draftFieldOptions,
+                  )}
+                  placeholder={t(
+                    'creationArea.tokui.interactionOptionsPlaceholder',
+                  )}
+                  onChange={event =>
+                    setDraftInteractionPoint(prev => ({
+                      ...prev,
+                      response_schema: normalizeResponseSchema({
+                        ...prev.response_schema,
+                        field_type: draftFieldType,
+                        options: optionsFromText(event.target.value),
+                      }),
+                    }))
+                  }
+                />
+              ) : null}
+              <textarea
+                className='min-h-20 rounded-md border border-slate-300 px-3 py-2 text-sm sm:col-span-2'
+                disabled={disabled}
+                value={draftInteractionPoint.continuation_hint}
+                placeholder={t(
+                  'creationArea.tokui.interactionContinuationPlaceholder',
+                )}
+                onChange={event =>
+                  setDraftInteractionPoint(prev => ({
+                    ...prev,
+                    continuation_hint: event.target.value,
+                    downstream_context_policy: event.target.value,
+                  }))
+                }
+              />
+              <Button
+                type='button'
+                size='sm'
+                variant='outline'
+                className='sm:col-span-2'
+                disabled={
+                  disabled ||
+                  (!draftInteractionPoint.prompt.trim() &&
+                    !draftInteractionPoint.continuation_hint.trim())
+                }
+                onClick={addDraftInteractionPoint}
+              >
+                <Plus className='mr-2 h-4 w-4' />
+                {t('creationArea.tokui.addInteractionPoint')}
+              </Button>
+            </div>
+            {normalizeInteractionPoints(template.interaction_points).length ? (
+              <div
+                className='mt-3 space-y-2'
+                data-testid='tokui-interaction-points'
+              >
+                {normalizeInteractionPoints(template.interaction_points).map(
+                  (point, index) => (
+                    <div
+                      key={`${point.interaction_id}-${index}`}
+                      className='flex gap-2 rounded-md bg-slate-50 px-2 py-2'
+                    >
+                      <div className='min-w-0 flex-1'>
+                        <div className='truncate text-xs font-medium text-slate-700'>
+                          {point.position}. {point.prompt}
+                        </div>
+                        <div className='mt-1 line-clamp-2 text-xs text-slate-500'>
+                          {t(
+                            `creationArea.tokui.responseTypeNames.${normalizeFieldType(
+                              point.response_schema.field_type,
+                            )}`,
+                          )}
+                          {' · '}
+                          {point.blocking
+                            ? t('creationArea.tokui.blockingInteractionLabel')
+                            : t(
+                                'creationArea.tokui.nonBlockingInteractionLabel',
+                              )}
+                          {point.continuation_hint
+                            ? ` - ${point.continuation_hint}`
+                            : ''}
+                        </div>
+                      </div>
+                      <Button
+                        type='button'
+                        size='icon'
+                        variant='ghost'
+                        disabled={disabled}
+                        aria-label={t(
+                          'creationArea.tokui.removeInteractionPoint',
+                        )}
+                        onClick={() => removeInteractionPoint(index)}
+                      >
+                        <Trash2 className='h-4 w-4' />
+                      </Button>
+                    </div>
+                  ),
+                )}
+              </div>
+            ) : null}
+          </div>
+
           <div className='rounded-md border border-slate-200 p-3'>
             <div className='mb-2 flex items-center justify-between gap-2'>
               <div className='text-xs font-medium text-slate-700'>
-                {t('module.shifu.creationArea.tokui.mediaRefsTitle')}
+                {t('creationArea.tokui.mediaRefsTitle')}
               </div>
               <div className='text-xs text-slate-500'>
-                {t('module.shifu.creationArea.tokui.mediaRefsHint')}
+                {t('creationArea.tokui.mediaRefsHint')}
               </div>
             </div>
             <div className='grid gap-2 sm:grid-cols-[7rem_1fr]'>
@@ -348,9 +1336,7 @@ export default function TokuiTemplatePanel({
                 className='rounded-md border border-slate-300 px-2 py-2 text-sm'
                 disabled={disabled}
                 value={draftMediaRef.type}
-                aria-label={t(
-                  'module.shifu.creationArea.tokui.mediaTypeLabel',
-                )}
+                aria-label={t('creationArea.tokui.mediaTypeLabel')}
                 onChange={event =>
                   setDraftMediaRef(prev => ({
                     ...prev,
@@ -359,19 +1345,17 @@ export default function TokuiTemplatePanel({
                 }
               >
                 <option value='image'>
-                  {t('module.shifu.creationArea.tokui.mediaTypeImage')}
+                  {t('creationArea.tokui.mediaTypeImage')}
                 </option>
                 <option value='video'>
-                  {t('module.shifu.creationArea.tokui.mediaTypeVideo')}
+                  {t('creationArea.tokui.mediaTypeVideo')}
                 </option>
               </select>
               <input
                 className='rounded-md border border-slate-300 px-3 py-2 text-sm'
                 disabled={disabled}
                 value={draftMediaRef.url || draftMediaRef.resource_id}
-                placeholder={t(
-                  'module.shifu.creationArea.tokui.mediaUrlPlaceholder',
-                )}
+                placeholder={t('creationArea.tokui.mediaUrlPlaceholder')}
                 onChange={event =>
                   setDraftMediaRef(prev => ({
                     ...prev,
@@ -384,9 +1368,7 @@ export default function TokuiTemplatePanel({
                 className='rounded-md border border-slate-300 px-3 py-2 text-sm sm:col-span-2'
                 disabled={disabled}
                 value={draftMediaRef.title}
-                placeholder={t(
-                  'module.shifu.creationArea.tokui.mediaTitlePlaceholder',
-                )}
+                placeholder={t('creationArea.tokui.mediaTitlePlaceholder')}
                 onChange={event =>
                   setDraftMediaRef(prev => ({
                     ...prev,
@@ -407,20 +1389,18 @@ export default function TokuiTemplatePanel({
                 onClick={addDraftMediaRef}
               >
                 <Plus className='mr-2 h-4 w-4' />
-                {t('module.shifu.creationArea.tokui.addMediaRef')}
+                {t('creationArea.tokui.addMediaRef')}
               </Button>
             </div>
             <div className='mt-3 border-t border-slate-200 pt-3'>
               <div className='mb-2 text-xs font-medium text-slate-700'>
-                {t('module.shifu.creationArea.tokui.imageGenerateTitle')}
+                {t('creationArea.tokui.imageGenerateTitle')}
               </div>
               <textarea
                 className='min-h-20 w-full rounded-md border border-slate-300 px-3 py-2 text-sm'
                 disabled={disabled || generatingImage}
                 value={imagePrompt}
-                placeholder={t(
-                  'module.shifu.creationArea.tokui.imagePromptPlaceholder',
-                )}
+                placeholder={t('creationArea.tokui.imagePromptPlaceholder')}
                 onChange={event => setImagePrompt(event.target.value)}
               />
               <Button
@@ -429,52 +1409,180 @@ export default function TokuiTemplatePanel({
                 variant='secondary'
                 className='mt-2'
                 disabled={disabled || generatingImage || !imagePrompt.trim()}
-                onClick={generateImageMediaRef}
+                onClick={() => void generateImageMediaRef()}
               >
                 {generatingImage ? (
                   <Loader2 className='mr-2 h-4 w-4 animate-spin' />
                 ) : (
                   <ImageIcon className='mr-2 h-4 w-4' />
                 )}
-                {t('module.shifu.creationArea.tokui.generateImage')}
+                {t('creationArea.tokui.generateImage')}
               </Button>
+              {currentImageJob?.job_bid ? (
+                <div className='mt-3 rounded-md border border-slate-200 bg-slate-50 p-3'>
+                  <div className='flex flex-wrap items-center justify-between gap-2'>
+                    <div>
+                      <div className='text-xs font-semibold text-slate-800'>
+                        {t(
+                          `creationArea.tokui.imageJobStatus.${currentImageJob.status}`,
+                        )}
+                      </div>
+                      {currentImageJob.optimized_prompt ? (
+                        <div className='mt-1 line-clamp-2 text-xs text-slate-500'>
+                          {currentImageJob.optimized_prompt}
+                        </div>
+                      ) : null}
+                      {currentImageJob.status === 'failed' ? (
+                        <div className='mt-1 text-xs text-red-600'>
+                          {currentImageJob.prompt_optimization_error ||
+                            currentImageJob.error_message ||
+                            t('creationArea.tokui.imageJobFailedHint')}
+                        </div>
+                      ) : null}
+                    </div>
+                    {currentImageJob.status === 'failed' ? (
+                      <Button
+                        type='button'
+                        size='sm'
+                        variant='outline'
+                        disabled={disabled || generatingImage}
+                        onClick={() =>
+                          void generateImageMediaRef(currentImageJob.job_bid)
+                        }
+                      >
+                        <RefreshCw className='mr-2 h-4 w-4' />
+                        {t('retry', { ns: 'common.core' })}
+                      </Button>
+                    ) : null}
+                  </div>
+                  {currentImageJob.candidates?.length ? (
+                    <div
+                      className='mt-3 grid gap-2 sm:grid-cols-3'
+                      data-testid='tokui-image-candidate-grid'
+                    >
+                      {currentImageJob.candidates.map(candidate => (
+                        <div
+                          key={candidate.candidate_bid}
+                          className='overflow-hidden rounded-md border border-slate-200 bg-white'
+                          data-testid='tokui-image-candidate-card'
+                        >
+                          <div className='aspect-square bg-slate-100'>
+                            {candidate.status === 'succeeded' &&
+                            candidate.url ? (
+                              <div
+                                aria-label={
+                                  candidate.title ||
+                                  t('creationArea.tokui.imageCandidateAlt')
+                                }
+                                className='h-full w-full bg-cover bg-center'
+                                role='img'
+                                style={{
+                                  backgroundImage: `url(${candidate.url})`,
+                                }}
+                              />
+                            ) : (
+                              <div className='flex h-full items-center justify-center px-2 text-center text-xs text-slate-500'>
+                                {candidate.status === 'failed'
+                                  ? candidate.error_message ||
+                                    t('creationArea.tokui.imageCandidateFailed')
+                                  : t(
+                                      `creationArea.tokui.imageCandidateStatus.${candidate.status}`,
+                                    )}
+                              </div>
+                            )}
+                          </div>
+                          <div className='space-y-2 p-2'>
+                            <div className='truncate text-xs font-medium text-slate-700'>
+                              {candidate.title ||
+                                `${t('creationArea.tokui.imageCandidate')} ${
+                                  candidate.candidate_index + 1
+                                }`}
+                            </div>
+                            <Button
+                              type='button'
+                              size='sm'
+                              variant={
+                                candidate.selected ? 'secondary' : 'outline'
+                              }
+                              className='w-full'
+                              disabled={
+                                disabled ||
+                                candidate.status !== 'succeeded' ||
+                                Boolean(selectingCandidateBid) ||
+                                Boolean(candidate.selected)
+                              }
+                              onClick={() =>
+                                void selectImageCandidate(
+                                  candidate.candidate_bid,
+                                )
+                              }
+                            >
+                              {selectingCandidateBid ===
+                              candidate.candidate_bid ? (
+                                <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                              ) : candidate.selected ? (
+                                <Check className='mr-2 h-4 w-4' />
+                              ) : (
+                                <Plus className='mr-2 h-4 w-4' />
+                              )}
+                              {candidate.selected
+                                ? t('creationArea.tokui.imageCandidateSelected')
+                                : t('creationArea.tokui.imageCandidateSelect')}
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
             {normalizeMediaRefs(template.media_refs).length ? (
-              <div className='mt-3 space-y-2'>
-                {normalizeMediaRefs(template.media_refs).map((mediaRef, index) => (
-                  <div
-                    key={`${mediaRef.resource_id || mediaRef.url}-${index}`}
-                    className='flex items-center gap-2 rounded-md bg-slate-50 px-2 py-2'
-                  >
-                    {mediaRef.type === 'video' ? (
-                      <Video className='h-4 w-4 shrink-0 text-slate-500' />
-                    ) : (
-                      <ImageIcon className='h-4 w-4 shrink-0 text-slate-500' />
-                    )}
-                    <div className='min-w-0 flex-1'>
-                      <div className='truncate text-xs font-medium text-slate-700'>
-                        {mediaRef.title ||
-                          mediaRef.resource_id ||
-                          mediaRef.url}
-                      </div>
-                      <div className='truncate text-xs text-slate-500'>
-                        {mediaRef.url || mediaRef.resource_id}
-                      </div>
-                    </div>
-                    <Button
-                      type='button'
-                      size='icon'
-                      variant='ghost'
-                      disabled={disabled}
-                      aria-label={t(
-                        'module.shifu.creationArea.tokui.removeMediaRef',
-                      )}
-                      onClick={() => removeMediaRef(index)}
+              <div
+                className='mt-3 grid gap-2 sm:grid-cols-2'
+                data-testid='tokui-selected-media-refs'
+              >
+                {normalizeMediaRefs(template.media_refs).map(
+                  (mediaRef, index) => (
+                    <div
+                      key={`${mediaRef.resource_id || mediaRef.url}-${index}`}
+                      className='flex min-w-0 items-center gap-2 rounded-md bg-slate-50 px-2 py-2'
                     >
-                      <Trash2 className='h-4 w-4' />
-                    </Button>
-                  </div>
-                ))}
+                      {mediaRef.type === 'image' && mediaRef.url ? (
+                        <div
+                          aria-label={mediaRef.title || mediaRef.resource_id}
+                          className='h-12 w-16 shrink-0 rounded border border-slate-200 bg-cover bg-center'
+                          role='img'
+                          style={{ backgroundImage: `url(${mediaRef.url})` }}
+                        />
+                      ) : mediaRef.type === 'video' ? (
+                        <Video className='h-8 w-8 shrink-0 text-slate-500' />
+                      ) : (
+                        <ImageIcon className='h-8 w-8 shrink-0 text-slate-500' />
+                      )}
+                      <div className='min-w-0 flex-1'>
+                        <div className='truncate text-xs font-medium text-slate-700'>
+                          {mediaRef.title ||
+                            mediaRef.resource_id ||
+                            mediaRef.url}
+                        </div>
+                        <div className='truncate text-xs text-slate-500'>
+                          {mediaRef.url || mediaRef.resource_id}
+                        </div>
+                      </div>
+                      <Button
+                        type='button'
+                        size='icon'
+                        variant='ghost'
+                        disabled={disabled}
+                        aria-label={t('creationArea.tokui.removeMediaRef')}
+                        onClick={() => removeMediaRef(index)}
+                      >
+                        <Trash2 className='h-4 w-4' />
+                      </Button>
+                    </div>
+                  ),
+                )}
               </div>
             ) : null}
           </div>
@@ -482,7 +1590,7 @@ export default function TokuiTemplatePanel({
             <Button
               type='button'
               size='sm'
-              disabled={disabled || saving}
+              disabled={disabled || saving || generatingGuidance}
               onClick={saveTemplate}
             >
               {saving ? (
@@ -490,13 +1598,13 @@ export default function TokuiTemplatePanel({
               ) : (
                 <Save className='mr-2 h-4 w-4' />
               )}
-              {t('common.core.save')}
+              {t('save', { ns: 'common.core' })}
             </Button>
             <Button
               type='button'
               size='sm'
               variant='secondary'
-              disabled={disabled || generating}
+              disabled={disabled || generating || generatingGuidance}
               onClick={generatePreview}
             >
               {generating ? (
@@ -506,20 +1614,42 @@ export default function TokuiTemplatePanel({
               ) : (
                 <Sparkles className='mr-2 h-4 w-4' />
               )}
-              {t('module.shifu.creationArea.tokui.generatePreview')}
+              {t('creationArea.tokui.generatePreview')}
             </Button>
           </div>
         </div>
 
         <div className='min-h-52 rounded-md border border-slate-200 bg-slate-50 p-3'>
-          {template.preview_dsl ? (
+          <div className='mb-3 border-b border-slate-200 pb-2'>
+            <div className='text-xs font-semibold text-slate-900'>
+              {t('creationArea.tokui.previewTitle')}
+            </div>
+            <div className='mt-1 text-xs leading-5 text-slate-500'>
+              {t('creationArea.tokui.previewHint')}
+            </div>
+          </div>
+          {generating ? (
+            <div className='flex h-full min-h-44 items-center justify-center gap-2 text-sm text-slate-500'>
+              <Loader2 className='h-4 w-4 animate-spin' />
+              {t('creationArea.tokui.previewGenerating')}
+            </div>
+          ) : template.preview_validation_status === 'failed' ? (
+            <div className='rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700'>
+              <div className='font-medium'>
+                {t('creationArea.tokui.previewFailed')}
+              </div>
+              <div className='mt-1 text-xs leading-5'>
+                {t('creationArea.tokui.previewFailedHint')}
+              </div>
+            </div>
+          ) : template.preview_dsl ? (
             <TokuiRenderer
               dsl={template.preview_dsl}
               interactionSchema={template.preview_interaction_schema || []}
             />
           ) : (
             <div className='flex h-full min-h-44 items-center justify-center text-sm text-slate-500'>
-              {t('module.shifu.creationArea.tokui.previewEmpty')}
+              {t('creationArea.tokui.previewEmpty')}
             </div>
           )}
         </div>

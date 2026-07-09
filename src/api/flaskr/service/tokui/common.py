@@ -11,6 +11,158 @@ TOKUI_STATUS_VALIDATED = "validated"
 TOKUI_STATUS_FAILED = "failed"
 TOKUI_STATUS_FALLBACK = "fallback"
 
+_TOKUI_TEXT_NEEDS_QUOTES_RE = re.compile(r"[\[\]:]")
+
+_FIELD_TYPE_ALIASES = {
+    "text": "short_text",
+    "textarea": "short_text",
+    "short": "short_text",
+    "short_text": "short_text",
+    "choice": "single_choice",
+    "radio": "single_choice",
+    "single": "single_choice",
+    "single_choice": "single_choice",
+    "select": "single_choice",
+    "checkbox": "multi_choice",
+    "multi": "multi_choice",
+    "multiple": "multi_choice",
+    "multiple_choice": "multi_choice",
+    "multi_choice": "multi_choice",
+    "boolean": "true_false",
+    "bool": "true_false",
+    "truefalse": "true_false",
+    "true_false": "true_false",
+    "number": "number",
+}
+
+_DEFAULT_VALUE_SHAPES = {
+    "short_text": "string",
+    "single_choice": "string",
+    "multi_choice": "string_array",
+    "true_false": "boolean",
+    "number": "number",
+}
+
+_TRUE_FALSE_OPTIONS = [
+    {"value": "true", "label": "对"},
+    {"value": "false", "label": "错"},
+]
+
+
+def _quote_tokui_text_content(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if _TOKUI_TEXT_NEEDS_QUOTES_RE.search(text):
+        return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    return text
+
+
+def _repair_card_tx_container(match: re.Match[str]) -> str:
+    attrs = match.group("attrs") or ""
+    body = match.group("body") or ""
+    tx_match = re.search(
+        r'(?:^|\s)tx:(?:"(?P<quoted>(?:[^"\\]|\\.)*)"|(?P<bare>[^\s\]]+))',
+        attrs,
+    )
+    if not tx_match or not body.strip():
+        return match.group(0)
+    tx_value = tx_match.group("quoted")
+    if tx_value is None:
+        tx_value = tx_match.group("bare") or ""
+    tx_value = tx_value.replace('\\"', '"')
+    cleaned_attrs = (attrs[: tx_match.start()] + attrs[tx_match.end() :]).strip()
+    open_tag = f"[card {cleaned_attrs}]" if cleaned_attrs else "[card]"
+    text_node = _quote_tokui_text_content(tx_value)
+    injected = f"[p {text_node}]" if text_node else ""
+    return f"{open_tag}{injected}{body}[/card]"
+
+
+def _clean_tokui_table_cell(value: str) -> str:
+    cleaned = re.sub(r"\[[^\]]+\]", " ", str(value or ""))
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return (
+        cleaned.replace("\\", "\\\\")
+        .replace('"', "'")
+        .replace("[", "(")
+        .replace("]", ")")
+    )
+
+
+def _extract_html_style_cells(row_body: str, cell_tag: str) -> list[str]:
+    cells = [
+        _clean_tokui_table_cell(match.group(1))
+        for match in re.finditer(
+            rf"\[{cell_tag}\b[^\]]*\]([\s\S]*?)\[/{cell_tag}\]",
+            row_body,
+            flags=re.IGNORECASE,
+        )
+    ]
+    if cells:
+        return [cell for cell in cells if cell]
+    return [
+        _clean_tokui_table_cell(match.group(1))
+        for match in re.finditer(
+            rf"\[{cell_tag}\s+([^\]]+)\]",
+            row_body,
+            flags=re.IGNORECASE,
+        )
+        if _clean_tokui_table_cell(match.group(1))
+    ]
+
+
+def _extract_html_style_rows(table_body: str, cell_tag: str) -> list[list[str]]:
+    rows: list[list[str]] = []
+    for row_match in re.finditer(
+        r"\[tr\b[^\]]*\]([\s\S]*?)\[/tr\]",
+        table_body,
+        flags=re.IGNORECASE,
+    ):
+        cells = _extract_html_style_cells(row_match.group(1), cell_tag)
+        if cells:
+            rows.append(cells)
+    return rows
+
+
+def _repair_html_style_table_cells(match: re.Match[str]) -> str:
+    full_table = match.group(0)
+    table_body = match.group("body") or ""
+    if not re.search(r"\[(?:td|th)(?:\s|\])", table_body, flags=re.IGNORECASE):
+        return full_table
+
+    thead_match = re.search(
+        r"\[thead\b[^\]]*\]([\s\S]*?)\[/thead\]",
+        table_body,
+        flags=re.IGNORECASE,
+    )
+    tbody_match = re.search(
+        r"\[tbody\b[^\]]*\]([\s\S]*?)\[/tbody\]",
+        table_body,
+        flags=re.IGNORECASE,
+    )
+    header_rows = (
+        _extract_html_style_rows(thead_match.group(1), "th") if thead_match else []
+    )
+    body_rows = _extract_html_style_rows(
+        tbody_match.group(1) if tbody_match else table_body,
+        "td",
+    )
+    headers = header_rows[0] if header_rows else []
+    if not body_rows:
+        return full_table
+
+    cols: list[str] = []
+    for row in body_rows:
+        if not row:
+            continue
+        title = row[0]
+        details: list[str] = []
+        for index, cell in enumerate(row[1:], start=1):
+            label = headers[index] if index < len(headers) else f"维度 {index + 1}"
+            details.append(f"[p {label}：{cell}]")
+        cols.append(f"[col][badge {title}]{''.join(details)}[/col]")
+    return f"[row]{''.join(cols)}[/row]" if cols else full_table
+
 
 def json_dumps(value: Any, default: Any) -> str:
     if value is None:
@@ -91,8 +243,165 @@ def normalize_media_refs(value: Any) -> list[dict[str, str]]:
     return normalized
 
 
+def normalize_material_refs(value: Any) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    normalized: list[dict[str, str]] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            continue
+        resource_id = str(
+            item.get("resource_id")
+            or item.get("resource_bid")
+            or item.get("id")
+            or ""
+        ).strip()
+        url = str(item.get("url") or item.get("src") or "").strip()
+        media_type = str(item.get("media_type") or item.get("type") or "image").strip()
+        if media_type not in {"image", "video"}:
+            media_type = "image"
+        normalized.append(
+            {
+                "placement_id": str(
+                    item.get("placement_id") or item.get("bid") or f"material_{index + 1}"
+                ).strip(),
+                "position": str(item.get("position") or index + 1).strip(),
+                "insertion_point": str(item.get("insertion_point") or "").strip(),
+                "media_type": media_type,
+                "title": str(item.get("title") or item.get("name") or "").strip(),
+                "description": str(
+                    item.get("description")
+                    or item.get("generation_prompt")
+                    or item.get("prompt")
+                    or ""
+                ).strip(),
+                "purpose": str(item.get("purpose") or "").strip(),
+                "resource_id": resource_id,
+                "url": url,
+            }
+        )
+    return [
+        item
+        for item in normalized
+        if item["title"]
+        or item["description"]
+        or item["insertion_point"]
+        or item["purpose"]
+        or item["resource_id"]
+        or item["url"]
+    ]
+
+
+def normalize_interaction_points(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    normalized: list[dict[str, Any]] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            continue
+        response_schema = item.get("response_schema")
+        if not isinstance(response_schema, dict):
+            response_schema = {}
+        response_schema = normalize_response_schema(response_schema) if response_schema else {}
+        blocking = bool(item.get("blocking", item.get("blocking_behavior", False)))
+        continue_on_submit_value = item.get("continue_on_submit")
+        continue_on_submit = (
+            bool(continue_on_submit_value)
+            if continue_on_submit_value is not None
+            else blocking
+        )
+        normalized.append(
+            {
+                "interaction_id": str(
+                    item.get("interaction_id")
+                    or item.get("field_id")
+                    or item.get("id")
+                    or f"interaction_{index + 1}"
+                ).strip(),
+                "position": str(item.get("position") or index + 1).strip(),
+                "insertion_point": str(
+                    item.get("insertion_point") or item.get("trigger_after") or ""
+                ).strip(),
+                "kind": str(item.get("kind") or "checkpoint").strip(),
+                "prompt": str(item.get("prompt") or item.get("question") or "").strip(),
+                "response_schema": response_schema,
+                "blocking": blocking,
+                "continue_on_submit": continue_on_submit,
+                "downstream_context_policy": str(
+                    item.get("downstream_context_policy") or ""
+                ).strip(),
+                "continuation_hint": str(item.get("continuation_hint") or "").strip(),
+            }
+        )
+    return [
+        item
+        for item in normalized
+        if item["prompt"]
+        or item["downstream_context_policy"]
+        or item["continuation_hint"]
+        or item["response_schema"]
+    ]
+
+
 def schema_hash(interaction_schema: Any) -> str:
     return stable_hash(interaction_schema if isinstance(interaction_schema, list) else [])
+
+
+def normalize_field_type(value: Any) -> str:
+    raw = str(value or "short_text").strip().lower().replace("-", "_")
+    return _FIELD_TYPE_ALIASES.get(raw, raw or "short_text")
+
+
+def normalize_schema_options(value: Any) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    normalized: list[dict[str, str]] = []
+    for index, item in enumerate(value):
+        if isinstance(item, str):
+            option_value = item.strip()
+            option_label = option_value
+        elif isinstance(item, dict):
+            option_value = str(
+                item.get("value")
+                or item.get("v")
+                or item.get("id")
+                or item.get("key")
+                or f"option_{index + 1}"
+            ).strip()
+            option_label = str(
+                item.get("label")
+                or item.get("tx")
+                or item.get("text")
+                or item.get("name")
+                or option_value
+            ).strip()
+        else:
+            continue
+        if not option_value and not option_label:
+            continue
+        if not option_value:
+            option_value = option_label
+        if not option_label:
+            option_label = option_value
+        normalized.append({"value": option_value, "label": option_label})
+    return normalized
+
+
+def normalize_response_schema(value: Any) -> dict[str, Any]:
+    raw = value if isinstance(value, dict) else {}
+    field_type = normalize_field_type(raw.get("field_type") or raw.get("type"))
+    options = normalize_schema_options(raw.get("options") or raw.get("choices"))
+    if field_type == "true_false" and not options:
+        options = list(_TRUE_FALSE_OPTIONS)
+    normalized: dict[str, Any] = {
+        "field_type": field_type,
+        "value_shape": str(
+            raw.get("value_shape") or _DEFAULT_VALUE_SHAPES.get(field_type, "string")
+        ),
+    }
+    if options:
+        normalized["options"] = options
+    return normalized
 
 
 def extract_json_object(text: str) -> dict[str, Any]:
@@ -136,25 +445,84 @@ def normalize_interaction_schema(value: Any) -> list[dict[str, Any]]:
             if continue_on_submit_value is not None
             else blocking
         )
-        normalized.append(
-            {
-                "field_id": field_id,
-                "field_type": str(item.get("field_type") or item.get("type") or "text"),
-                "label": str(item.get("label") or item.get("field_label") or ""),
-                "required": bool(item.get("required", False)),
-                "semantic_role": str(item.get("semantic_role") or ""),
-                "value_shape": str(item.get("value_shape") or ""),
-                "blocking": blocking,
-                "continue_on_submit": continue_on_submit,
-                "continuation_hint": str(item.get("continuation_hint") or ""),
-            }
-        )
+        response_schema = normalize_response_schema(item)
+        normalized_item = {
+            "field_id": field_id,
+            "field_type": response_schema["field_type"],
+            "label": str(item.get("label") or item.get("field_label") or ""),
+            "required": bool(item.get("required", False)),
+            "semantic_role": str(item.get("semantic_role") or ""),
+            "value_shape": response_schema["value_shape"],
+            "blocking": blocking,
+            "continue_on_submit": continue_on_submit,
+            "continuation_hint": str(item.get("continuation_hint") or ""),
+        }
+        if response_schema.get("options"):
+            normalized_item["options"] = response_schema["options"]
+        normalized.append(normalized_item)
+    return normalized
+
+
+def normalize_generated_tokui_dsl(dsl: str) -> str:
+    normalized = str(dsl or "").strip()
+
+    def replace_heading_container(match: re.Match[str]) -> str:
+        content = (match.group(2) or "").strip()
+        if not content:
+            return ""
+        return f"[h2 {content}]"
+
+    normalized = re.sub(
+        r"\[heading([^\]]*)\](.*?)\[/heading\]",
+        replace_heading_container,
+        normalized,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    normalized = re.sub(
+        r"\[heading\s+([^\]]+)\]",
+        lambda match: f"[h2 {match.group(1).strip()}]",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    normalized = re.sub(
+        r"\[card(?P<attrs>[^\]]*\btx:(?:\"(?:[^\"\\]|\\.)*\"|[^\s\]]+)[^\]]*)\]"
+        r"(?P<body>[\s\S]*?)\[/card\]",
+        _repair_card_tx_container,
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    normalized = re.sub(
+        r"\[p\s+(muted|bold|sm|lg|left|center|right)\s+([^\]]+)\]",
+        lambda match: f"[p v:{match.group(1)} {match.group(2).strip()}]",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    normalized = re.sub(
+        r"\[(p|item|h[1-6])(\s+v:[^\s\]]+)?\s+([QA]):",
+        lambda match: f"[{match.group(1)}{match.group(2) or ''} {match.group(3)}：",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    normalized = re.sub(
+        r"(\[p[^\]]+\])\s*\[/p\]",
+        r"\1",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    normalized = re.sub(
+        r"\[table(?P<attrs>[^\]]*)\](?P<body>[\s\S]*?)\[/table\]",
+        _repair_html_style_table_cells,
+        normalized,
+        flags=re.IGNORECASE,
+    )
     return normalized
 
 
 def build_generation_payload(raw_text: str) -> dict[str, Any]:
     parsed = extract_json_object(raw_text)
-    dsl = str(parsed.get("dsl") or parsed.get("tokui_dsl") or "").strip()
+    dsl = normalize_generated_tokui_dsl(
+        str(parsed.get("dsl") or parsed.get("tokui_dsl") or "")
+    )
     interaction_schema = normalize_interaction_schema(parsed.get("interaction_schema"))
     media_refs = parsed.get("media_refs")
     if not isinstance(media_refs, list):

@@ -193,6 +193,10 @@ src/api/logs/
 
 # Harness runtime artifacts
 artifacts/runs/
+e2e/*_result.json
+e2e/*.png
+e2e/*.log
+e2e/*.pid
 
 ###############################################################################
 # Never ignore these files (exceptions to above rules)

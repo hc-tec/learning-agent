@@ -169,6 +169,52 @@ def _extract_generated_image(
     raise_error("server.shifu.tokuiImageProviderInvalidResponse")
 
 
+def request_generated_image(
+    app: Flask,
+    *,
+    config: TokuiImageProviderConfig,
+    prompt: str,
+    size: str,
+) -> tuple[GeneratedImage, dict[str, Any]]:
+    image_size = str(size or config.default_size).strip() or config.default_size
+    endpoint, headers, payload = _build_provider_request(
+        config=config,
+        prompt=prompt,
+        size=image_size,
+    )
+
+    try:
+        response = requests.post(
+            endpoint,
+            headers=headers,
+            json=payload,
+            timeout=config.timeout_seconds,
+        )
+    except requests.RequestException:
+        raise_error("server.shifu.tokuiImageGenerationFailed")
+
+    if response.status_code >= 400:
+        app.logger.warning(
+            "TokUI image provider request failed status=%s body=%s",
+            response.status_code,
+            _provider_error_message(response),
+        )
+        raise_error("server.shifu.tokuiImageGenerationFailed")
+
+    try:
+        provider_payload = response.json()
+    except ValueError:
+        raise_error("server.shifu.tokuiImageProviderInvalidResponse")
+    if not isinstance(provider_payload, dict):
+        raise_error("server.shifu.tokuiImageProviderInvalidResponse")
+
+    generated_image = _extract_generated_image(
+        provider_payload,
+        timeout_seconds=config.timeout_seconds,
+    )
+    return generated_image, provider_payload
+
+
 def _extension_for_content_type(content_type: str) -> str:
     normalized = (content_type or "").split(";", 1)[0].strip().lower()
     if normalized == "image/jpeg":
@@ -250,40 +296,11 @@ def generate_tokui_image_media_ref(
 
     config = get_tokui_image_provider_config()
     image_size = str(size or config.default_size).strip() or config.default_size
-    endpoint, headers, payload = _build_provider_request(
+    generated_image, provider_payload = request_generated_image(
+        app,
         config=config,
         prompt=normalized_prompt,
         size=image_size,
-    )
-
-    try:
-        response = requests.post(
-            endpoint,
-            headers=headers,
-            json=payload,
-            timeout=config.timeout_seconds,
-        )
-    except requests.RequestException:
-        raise_error("server.shifu.tokuiImageGenerationFailed")
-
-    if response.status_code >= 400:
-        app.logger.warning(
-            "TokUI image provider request failed status=%s body=%s",
-            response.status_code,
-            _provider_error_message(response),
-        )
-        raise_error("server.shifu.tokuiImageGenerationFailed")
-
-    try:
-        provider_payload = response.json()
-    except ValueError:
-        raise_error("server.shifu.tokuiImageProviderInvalidResponse")
-    if not isinstance(provider_payload, dict):
-        raise_error("server.shifu.tokuiImageProviderInvalidResponse")
-
-    generated_image = _extract_generated_image(
-        provider_payload,
-        timeout_seconds=config.timeout_seconds,
     )
     with app.app_context():
         media_ref = _store_generated_image(

@@ -1,6 +1,6 @@
 type LocalesMetadata = {
   default: string;
-  locales: Record<string, { label: string; rtl?: boolean }>;
+  locales: Record<string, { label: string; rtl?: boolean; visible?: boolean }>;
   namespaces?: string[];
 };
 
@@ -26,10 +26,14 @@ const parseMetadata = (raw: string | undefined): LocalesMetadata => {
 
 const metadata = parseMetadata(rawMetadata);
 
-export const localeEntries = Object.entries(metadata.locales) as [
+export const metadataLocaleEntries = Object.entries(metadata.locales) as [
   string,
-  { label: string; rtl?: boolean },
+  { label: string; rtl?: boolean; visible?: boolean },
 ][];
+
+export const localeEntries = metadataLocaleEntries.filter(
+  ([, locale]) => locale.visible !== false,
+);
 
 export const localeCodes = localeEntries.map(([code]) => code);
 

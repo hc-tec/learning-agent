@@ -7,7 +7,8 @@
     },
     "fr-FR": {
       "label": "Français",
-      "rtl": false
+      "rtl": false,
+      "visible": false
     },
     "zh-CN": {
       "label": "中文",
