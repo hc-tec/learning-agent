@@ -49,7 +49,7 @@ type StreamingPreviewState = {
   streamKey: string;
   chunks: string[];
   complete: boolean;
-  status?: 'repairing' | 'final_failed' | string;
+  status?: 'generating' | 'continuing' | 'repairing' | 'final_failed' | string;
   errorMessage?: string;
 };
 
@@ -144,6 +144,7 @@ export default function LearnerTokuiBlock({
         streamKey: `${outlineBid}:${Date.now()}:${requestSeq}`,
         chunks: [],
         complete: false,
+        status: retry ? 'continuing' : 'generating',
       });
 
       return new Promise<LearnerTokuiArtifact | undefined>(resolve => {
@@ -497,10 +498,7 @@ export default function LearnerTokuiBlock({
     ],
   );
 
-  if (
-    previewMode ||
-    (!artifacts.length && !streamingPreview?.chunks.length && !showLoading)
-  ) {
+  if (previewMode || (!artifacts.length && !streamingPreview && !showLoading)) {
     return null;
   }
 
@@ -514,7 +512,7 @@ export default function LearnerTokuiBlock({
         {showLoading &&
         loading &&
         !artifacts.length &&
-        !streamingPreview?.chunks.length ? (
+        !streamingPreview ? (
           <div className='flex items-center gap-2 text-sm text-[var(--muted-foreground)]'>
             <Loader2 className='h-4 w-4 animate-spin' />
             {t('module.chat.tokuiGenerating')}
@@ -581,7 +579,18 @@ export default function LearnerTokuiBlock({
                 </div>
               );
             })}
-            {streamingPreview?.chunks.length ? (
+            {saving ? (
+              <div className='rounded-md border border-[var(--border)] bg-[var(--muted)] p-3'>
+                <div className='flex items-center gap-2 text-sm font-medium text-[var(--foreground)]'>
+                  <Loader2 className='h-4 w-4 animate-spin text-[var(--primary)]' />
+                  正在提交你的回答...
+                </div>
+                <p className='mt-2 text-xs leading-5 text-[var(--muted-foreground)]'>
+                  提交成功后会根据你的回答继续讲解；前面的内容不会清空。
+                </p>
+              </div>
+            ) : null}
+            {streamingPreview ? (
               <div
                 className={
                   artifacts.length
@@ -589,18 +598,41 @@ export default function LearnerTokuiBlock({
                     : ''
                 }
               >
-                {streamingPreview.status === 'repairing' &&
+                {!streamingPreview.chunks.length &&
                 !streamingPreview.complete ? (
-                  <div className='mb-2 flex items-center gap-2 text-xs text-[var(--muted-foreground)]'>
-                    <Loader2 className='h-3 w-3 animate-spin' />
-                    正在修正互动讲解格式...
+                  <div className='rounded-md border border-[var(--border)] bg-[var(--muted)] p-3'>
+                    <div className='flex items-center gap-2 text-sm font-medium text-[var(--foreground)]'>
+                      <Loader2 className='h-4 w-4 animate-spin text-[var(--primary)]' />
+                      {streamingPreview.status === 'repairing'
+                        ? '正在修正互动讲解格式...'
+                        : streamingPreview.status === 'continuing'
+                          ? '正在分析你的回答...'
+                          : '正在生成互动讲解...'}
+                    </div>
+                    <p className='mt-2 text-xs leading-5 text-[var(--muted-foreground)]'>
+                      {streamingPreview.status === 'continuing'
+                        ? 'AI 正在判断答案质量，并生成下一段讲解；前面的内容会保留。'
+                        : streamingPreview.status === 'repairing'
+                          ? 'AI 正在修复格式问题，已生成内容不会被清空。'
+                          : 'AI 正在根据课程设计组织本节内容，请稍等。'}
+                    </p>
                   </div>
-                ) : null}
-                <TokuiStreamingRenderer
-                  streamKey={streamingPreview.streamKey}
-                  chunks={streamingPreview.chunks}
-                  complete={streamingPreview.complete}
-                />
+                ) : (
+                  <>
+                    {streamingPreview.status === 'repairing' &&
+                    !streamingPreview.complete ? (
+                      <div className='mb-2 flex items-center gap-2 text-xs text-[var(--muted-foreground)]'>
+                        <Loader2 className='h-3 w-3 animate-spin' />
+                        正在修正互动讲解格式...
+                      </div>
+                    ) : null}
+                    <TokuiStreamingRenderer
+                      streamKey={streamingPreview.streamKey}
+                      chunks={streamingPreview.chunks}
+                      complete={streamingPreview.complete}
+                    />
+                  </>
+                )}
                 {streamingPreview.status === 'final_failed' ? (
                   <div className='mt-3 space-y-2 rounded-md border border-[var(--border)] bg-[var(--muted)] p-3'>
                     <p className='text-xs leading-5 text-[var(--muted-foreground)]'>
@@ -625,18 +657,10 @@ export default function LearnerTokuiBlock({
                 ) : null}
               </div>
             ) : null}
-            {saving || (continuing && !streamingPreview?.chunks.length) ? (
-              <div className='flex items-center gap-2 text-xs text-[var(--muted-foreground)]'>
-                <Loader2 className='h-3 w-3 animate-spin' />
-                {continuing
-                  ? '已提交，正在根据你的回答继续讲解...'
-                  : t('module.chat.tokuiSaving')}
-              </div>
-            ) : null}
             {showLoading &&
             loading &&
             artifacts.length &&
-            !streamingPreview?.chunks.length ? (
+            !streamingPreview ? (
               <div className='flex items-center gap-2 text-xs text-[var(--muted-foreground)]'>
                 <Loader2 className='h-3 w-3 animate-spin' />
                 正在准备后续讲解...

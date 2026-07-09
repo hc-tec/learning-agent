@@ -328,6 +328,56 @@ describe('LearnerTokuiBlock continuation flow', () => {
     expect(screen.queryByText('正在修正互动讲解格式...')).not.toBeInTheDocument();
   });
 
+  it('shows a visible continuation panel before the first streamed chunk arrives', async () => {
+    mockTokuiStreamFinal({
+      enabled: true,
+      tokui_artifact_bid: 'artifact-1',
+      schema_hash: 'schema-1',
+      validation_status: 'validated',
+      dsl: `
+        <section>
+          <p>第一段讲解</p>
+          <form>
+            <textarea name="heavy_haul_answer">请输入你的答案</textarea>
+            <button class="tokui-btn" type="button" data-tokui-tag="btn">
+              提交答案
+            </button>
+          </form>
+        </section>
+      `,
+      interaction_schema: [
+        {
+          field_id: 'heavy_haul_answer',
+          field_type: 'text',
+          blocking: true,
+          continue_on_submit: true,
+        },
+      ],
+    });
+    mockedApi.saveLearnerTokuiResponses.mockResolvedValue({
+      continue_required: true,
+      continue_fields: ['heavy_haul_answer'],
+    });
+    mockedStreamLearnerTokui.mockImplementationOnce(() => ({ close: jest.fn() }));
+
+    render(
+      <LearnerTokuiBlock shifuBid='shifu-1' outlineBid='outline-1' />,
+    );
+
+    expect(await screen.findByText('第一段讲解')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: '重载铁路' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '提交答案' }));
+
+    expect(await screen.findByText('正在分析你的回答...')).toBeInTheDocument();
+    expect(
+      screen.getByText('AI 正在判断答案质量，并生成下一段讲解；前面的内容会保留。'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('第一段讲解')).toBeInTheDocument();
+  });
+
   it('keeps prior content visible and shows retry fallback when continuation fails', async () => {
     mockTokuiStreamFinal({
       enabled: true,
@@ -492,6 +542,11 @@ describe('LearnerTokuiBlock continuation flow', () => {
     fireEvent.click(button);
 
     expect(mockedApi.saveLearnerTokuiResponses).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText('正在提交你的回答...')).toBeInTheDocument();
+    expect(
+      screen.getByText('提交成功后会根据你的回答继续讲解；前面的内容不会清空。'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('第一段讲解')).toBeInTheDocument();
   });
 
   it('renders all artifacts returned by backend artifact_chain', async () => {
